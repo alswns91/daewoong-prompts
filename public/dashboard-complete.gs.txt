@@ -1,0 +1,563 @@
+// =============================================
+// 소장(관리자)용 팀 성과 대시보드 웹앱
+// Google Apps Script - doGet() 기반
+// =============================================
+
+const SPREADSHEET_ID = '';  // ← 여기에 본인의 스프레드시트 ID 입력
+
+function doGet(e) {
+  const data = loadAllData();
+  const html = buildHtml(data);
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('팀 성과 대시보드')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// =============================================
+// 데이터 로딩
+// =============================================
+function loadAllData() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // 1. 조직도및MR 시트
+  const orgSheet = ss.getSheetByName('조직도및MR');
+  const orgValues = orgSheet.getDataRange().getValues();
+  const orgRows = orgValues.slice(1).map(row => ({
+    구분: row[0],
+    사업부: row[1],
+    사무소: row[2],
+    소장: row[3],
+    MR: row[4],
+    직급: row[5],
+    담당고객수: row[6],
+    누적활동건수: row[7],
+    연락처: row[8]
+  }));
+  const mrList = orgRows.filter(r => r.구분 === '실무').map(r => r.MR);
+
+  // 2. 고객마스터 시트
+  const custSheet = ss.getSheetByName('고객마스터');
+  const custValues = custSheet.getDataRange().getValues();
+  const custRows = custValues.slice(1).map(row => {
+    const nextDate = row[18] ? new Date(row[18]) : null;
+    if (nextDate) nextDate.setHours(0, 0, 0, 0);
+    const lastDate = row[17] ? new Date(row[17]) : null;
+    const diffDays = nextDate ? Math.floor((today - nextDate) / 86400000) : null;
+    return {
+      고객ID: row[0],
+      사업부: row[1],
+      사무소: row[2],
+      소장: row[3],
+      MR: row[4],
+      거래처명: row[5],
+      고객명: row[6],
+      고객유형: row[7],
+      전문과목: row[8],
+      전월단계: row[9],
+      현재단계: row[10],
+      잠재점수: Number(row[11]) || 0,
+      잠재등급: row[12],
+      우선순위: row[13],
+      관심분야: row[14],
+      세부관심: row[15],
+      선호접점: row[16],
+      최근활동일: lastDate ? Utilities.formatDate(lastDate, 'Asia/Seoul', 'yyyy-MM-dd') : '',
+      다음활동예정일: nextDate ? Utilities.formatDate(nextDate, 'Asia/Seoul', 'yyyy-MM-dd') : '',
+      월목표활동수: Number(row[19]) || 0,
+      이번달활동수: Number(row[20]) || 0,
+      최근반응: row[21],
+      중점제품: row[22],
+      접근팁: row[23],
+      비고: row[24],
+      _nextDate: nextDate,
+      _diffDays: diffDays
+    };
+  });
+
+  // 3. 활동로그 시트
+  const logSheet = ss.getSheetByName('활동로그');
+  const logValues = logSheet.getDataRange().getValues();
+  const thisYear = today.getFullYear();
+  const thisMonth = today.getMonth();
+  const logRows = logValues.slice(1).map(row => {
+    const actDate = row[1] ? new Date(row[1]) : null;
+    return {
+      활동ID: row[0],
+      활동일자: actDate ? Utilities.formatDate(actDate, 'Asia/Seoul', 'yyyy-MM-dd') : '',
+      주차: row[2],
+      사업부: row[3],
+      사무소: row[4],
+      소장: row[5],
+      MR: row[6],
+      고객ID: row[7],
+      거래처명: row[8],
+      고객명: row[9],
+      전문과목: row[10],
+      활동유형: row[11],
+      방문목적: row[12],
+      중점제품: row[13],
+      결과요약: row[14],
+      고객반응: row[15],
+      단계변화: row[16],
+      후속조치: row[17],
+      다음활동예정일: row[18],
+      소요시간: Number(row[19]) || 0,
+      활동점수: Number(row[20]) || 0,
+      관리자피드백: row[21],
+      _actDate: actDate
+    };
+  });
+
+  // =============================================
+  // KPI 계산
+  // =============================================
+  const totalCustomers = custRows.length;
+
+  const thisMonthLogs = logRows.filter(r => {
+    return r._actDate && r._actDate.getFullYear() === thisYear && r._actDate.getMonth() === thisMonth;
+  });
+  const thisMonthActivity = thisMonthLogs.length;
+
+  const gradeACount = custRows.filter(r => r.잠재등급 === 'A').length;
+
+  const sevenDaysLater = new Date(today);
+  sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
+  const upcomingCount = custRows.filter(r => {
+    if (!r._nextDate) return false;
+    return r._nextDate >= today && r._nextDate <= sevenDaysLater;
+  }).length;
+
+  // =============================================
+  // MR별 성과 집계
+  // =============================================
+  const mrPerf = mrList.map(mr => {
+    const mrCusts = custRows.filter(r => r.MR === mr);
+    const totalCust = mrCusts.length;
+    const thisMonthAct = mrCusts.reduce((s, r) => s + r.이번달활동수, 0);
+    const aGrade = mrCusts.filter(r => r.잠재등급 === 'A').length;
+    const stage45 = mrCusts.filter(r => r.현재단계 === '4단계' || r.현재단계 === '5단계').length;
+    const avgScore = totalCust > 0
+      ? Math.round(mrCusts.reduce((s, r) => s + r.잠재점수, 0) / totalCust * 10) / 10
+      : 0;
+    return { MR: mr, 담당고객수: totalCust, 이번달활동수: thisMonthAct, A등급수: aGrade, 단계45수: stage45, 평균잠재점수: avgScore };
+  });
+
+  // =============================================
+  // 파이프라인 단계별 집계
+  // =============================================
+  const stageMap = { '1단계': 0, '2단계': 0, '3단계': 0, '4단계': 0, '5단계': 0 };
+  custRows.forEach(r => {
+    if (stageMap.hasOwnProperty(r.현재단계)) stageMap[r.현재단계]++;
+  });
+
+  // =============================================
+  // 방문 지연 거래처
+  // =============================================
+  const delayedList = custRows
+    .filter(r => r._nextDate && r._diffDays > 0)
+    .sort((a, b) => b._diffDays - a._diffDays)
+    .map(r => ({
+      거래처명: r.거래처명,
+      고객명: r.고객명,
+      MR: r.MR,
+      현재단계: r.현재단계,
+      잠재등급: r.잠재등급,
+      다음활동예정일: r.다음활동예정일,
+      지연일수: r._diffDays
+    }));
+
+  // =============================================
+  // 전체 거래처 리스트
+  // =============================================
+  const custList = custRows.map(r => ({
+    고객ID: r.고객ID,
+    거래처명: r.거래처명,
+    고객명: r.고객명,
+    MR: r.MR,
+    현재단계: r.현재단계,
+    잠재등급: r.잠재등급,
+    잠재점수: r.잠재점수,
+    최근활동일: r.최근활동일,
+    다음활동예정일: r.다음활동예정일,
+    이번달활동수: r.이번달활동수
+  }));
+
+  const todayStr = Utilities.formatDate(today, 'Asia/Seoul', 'yyyy-MM-dd');
+
+  return {
+    today: todayStr,
+    kpi: { totalCustomers, thisMonthActivity, gradeACount, upcomingCount },
+    mrPerf,
+    mrList,
+    stageMap,
+    delayedList,
+    custList
+  };
+}
+
+// =============================================
+// HTML 빌드
+// =============================================
+function buildHtml(data) {
+  const jsonData = JSON.stringify(data);
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>팀 성과 대시보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy: #1A2E5A; --navy-dark: #111D3A; --navy-light: #243560;
+    --blue: #2563EB; --blue-light: #3B82F6; --blue-pale: #EFF6FF;
+    --accent: #0EA5E9; --success: #10B981; --warning: #F59E0B; --danger: #EF4444;
+    --gray-50: #F8FAFC; --gray-100: #F1F5F9; --gray-200: #E2E8F0;
+    --gray-300: #CBD5E1; --gray-500: #64748B; --gray-700: #334155;
+    --gray-900: #0F172A; --white: #FFFFFF;
+    --radius: 12px; --shadow: 0 4px 20px rgba(26,46,90,0.10);
+    --shadow-lg: 0 8px 32px rgba(26,46,90,0.16);
+  }
+  html { scroll-behavior: smooth; }
+  body { font-family: 'Noto Sans KR', sans-serif; background: var(--gray-50); color: var(--gray-900); min-height: 100vh; }
+  .header { background: var(--navy); color: var(--white); padding: 0 2rem; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+  .header-inner { max-width: 1400px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .header-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.1rem; }
+  .header-logo .dot { width: 8px; height: 8px; background: var(--accent); border-radius: 50%; display: inline-block; }
+  .header-date { font-size: 0.82rem; color: rgba(255,255,255,0.65); }
+  .main { max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  .section-title { font-size: 1rem; font-weight: 700; color: var(--navy); margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; }
+  .section-title::before { content: ''; display: block; width: 4px; height: 18px; background: var(--blue); border-radius: 2px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+  .kpi-card { background: var(--white); border-radius: var(--radius); padding: 1.5rem 1.6rem; box-shadow: var(--shadow); border: 1px solid var(--gray-200); position: relative; overflow: hidden; transition: transform 0.18s, box-shadow 0.18s; }
+  .kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .kpi-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; border-radius: var(--radius) var(--radius) 0 0; }
+  .kpi-card.blue::after { background: var(--blue); }
+  .kpi-card.green::after { background: var(--success); }
+  .kpi-card.orange::after { background: var(--warning); }
+  .kpi-card.red::after { background: var(--danger); }
+  .kpi-label { font-size: 0.78rem; font-weight: 600; color: var(--gray-500); margin-bottom: 0.5rem; }
+  .kpi-value { font-size: 2.4rem; font-weight: 800; color: var(--navy); line-height: 1; margin-bottom: 0.3rem; letter-spacing: -0.03em; }
+  .kpi-sub { font-size: 0.75rem; color: var(--gray-500); }
+  .kpi-icon { position: absolute; right: 1.2rem; top: 1.2rem; font-size: 1.8rem; opacity: 0.12; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+  .panel { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--gray-200); overflow: hidden; }
+  .panel-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--gray-200); background: var(--gray-50); }
+  .panel-body { padding: 1.25rem; }
+  .pipeline-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; }
+  .stage-card { border-radius: 10px; padding: 1rem 0.75rem; text-align: center; cursor: pointer; border: 2px solid transparent; transition: all 0.18s; }
+  .stage-card:hover, .stage-card.active { border-color: var(--blue); transform: scale(1.03); box-shadow: 0 4px 16px rgba(37,99,235,0.18); }
+  .stage-1 { background: #EFF6FF; } .stage-2 { background: #ECFDF5; } .stage-3 { background: #FFFBEB; } .stage-4 { background: #FFF7ED; } .stage-5 { background: #FDF4FF; }
+  .stage-num { font-size: 1.6rem; font-weight: 800; color: var(--navy); line-height: 1; }
+  .stage-label { font-size: 0.7rem; font-weight: 600; color: var(--gray-500); margin-top: 0.3rem; }
+  .stage-badge { display: inline-block; font-size: 0.65rem; font-weight: 700; border-radius: 20px; padding: 1px 7px; margin-top: 0.35rem; color: var(--white); }
+  .stage-1 .stage-badge { background: var(--blue-light); } .stage-2 .stage-badge { background: var(--success); }
+  .stage-3 .stage-badge { background: var(--warning); } .stage-4 .stage-badge { background: #F97316; } .stage-5 .stage-badge { background: #9333EA; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  thead tr { background: var(--navy); color: var(--white); }
+  thead th { padding: 0.7rem 0.9rem; text-align: left; font-weight: 600; font-size: 0.78rem; white-space: nowrap; }
+  tbody tr { border-bottom: 1px solid var(--gray-100); transition: background 0.12s; cursor: pointer; }
+  tbody tr:hover, tbody tr.active { background: var(--blue-pale); }
+  tbody td { padding: 0.65rem 0.9rem; color: var(--gray-700); }
+  .rank-bar { display: flex; align-items: center; gap: 6px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--blue); transition: width 0.5s; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; }
+  .badge-A { background: #FEF3C7; color: #92400E; } .badge-B { background: #DCFCE7; color: #166534; }
+  .badge-C { background: #F1F5F9; color: var(--gray-500); } .badge-delay { background: #FEE2E2; color: #991B1B; }
+  .badge-s1 { background: #DBEAFE; color: #1D4ED8; } .badge-s2 { background: #D1FAE5; color: #065F46; }
+  .badge-s3 { background: #FEF9C3; color: #92400E; } .badge-s4 { background: #FFEDD5; color: #9A3412; } .badge-s5 { background: #F3E8FF; color: #6B21A8; }
+  .filter-bar { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+  .filter-bar select, .filter-bar input { padding: 0.45rem 0.85rem; border: 1.5px solid var(--gray-200); border-radius: 8px; font-family: inherit; font-size: 0.83rem; color: var(--gray-700); background: var(--white); outline: none; transition: border-color 0.15s; }
+  .filter-bar select:focus, .filter-bar input:focus { border-color: var(--blue); }
+  .filter-bar input { min-width: 200px; }
+  .btn-reset { padding: 0.45rem 0.9rem; background: var(--gray-100); border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--gray-700); transition: all 0.15s; font-family: inherit; }
+  .btn-reset:hover { background: var(--gray-200); }
+  .section { margin-bottom: 2rem; }
+  .empty-msg { text-align: center; padding: 2rem; color: var(--gray-500); font-size: 0.88rem; }
+  .pagination { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 1rem; flex-wrap: wrap; }
+  .page-btn { padding: 4px 10px; border: 1.5px solid var(--gray-200); border-radius: 6px; font-size: 0.8rem; cursor: pointer; background: var(--white); color: var(--gray-700); font-family: inherit; transition: all 0.12s; }
+  .page-btn:hover { border-color: var(--blue); color: var(--blue); }
+  .page-btn.active { background: var(--blue); color: var(--white); border-color: var(--blue); }
+  .page-info { font-size: 0.78rem; color: var(--gray-500); margin: 0 0.5rem; }
+  @media (max-width: 1024px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .two-col { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .header { padding: 0 1rem; } .main { padding: 1rem 0.75rem 3rem; } .kpi-grid { grid-template-columns: 1fr 1fr; gap: 0.75rem; } .pipeline-grid { grid-template-columns: repeat(3, 1fr); } .kpi-value { font-size: 1.8rem; } .filter-bar input { min-width: 140px; } thead th, tbody td { padding: 0.55rem 0.6rem; font-size: 0.78rem; } }
+  @media (max-width: 400px) { .kpi-grid { grid-template-columns: 1fr; } .pipeline-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <div class="header-logo"><span class="dot"></span>팀 성과 대시보드</div>
+    <div class="header-date" id="todayLabel"></div>
+  </div>
+</header>
+<main class="main">
+  <div class="section">
+    <div class="section-title">핵심 성과 지표</div>
+    <div class="kpi-grid">
+      <div class="kpi-card blue"><span class="kpi-icon">🏥</span><div class="kpi-label">전체 담당 거래처</div><div class="kpi-value" id="kpi1">—</div><div class="kpi-sub">고객마스터 기준</div></div>
+      <div class="kpi-card green"><span class="kpi-icon">📋</span><div class="kpi-label">이번 달 총 활동건수</div><div class="kpi-value" id="kpi2">—</div><div class="kpi-sub">활동로그 기준</div></div>
+      <div class="kpi-card orange"><span class="kpi-icon">⭐</span><div class="kpi-label">핵심 고객 (A등급)</div><div class="kpi-value" id="kpi3">—</div><div class="kpi-sub">잠재등급 A 거래처</div></div>
+      <div class="kpi-card red"><span class="kpi-icon">📅</span><div class="kpi-label">7일 내 방문 예정</div><div class="kpi-value" id="kpi4">—</div><div class="kpi-sub">오늘~7일 이내</div></div>
+    </div>
+  </div>
+  <div class="two-col section">
+    <div class="panel">
+      <div class="panel-header"><div class="section-title" style="margin-bottom:0">현재단계 파이프라인</div></div>
+      <div class="panel-body"><div class="pipeline-grid" id="pipelineGrid"></div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="section-title" style="margin-bottom:0">MR별 성과 비교</div></div>
+      <div class="panel-body" style="padding:0">
+        <div class="table-wrap">
+          <table id="mrTable">
+            <thead><tr><th>MR</th><th>담당</th><th>이번달활동</th><th>A등급</th><th>4~5단계</th><th>평균점수</th></tr></thead>
+            <tbody id="mrTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">방문 지연 거래처 <span id="delayCount" style="font-size:0.82rem;color:var(--danger);font-weight:400;margin-left:4px"></span></div>
+    <div class="panel">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>거래처명</th><th>MR</th><th>현재단계</th><th>잠재등급</th><th>다음활동예정일</th><th>지연일수</th></tr></thead>
+          <tbody id="delayTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">전체 거래처 리스트 <span id="custCount" style="font-size:0.82rem;color:var(--gray-500);font-weight:400;margin-left:4px"></span></div>
+    <div class="panel">
+      <div class="panel-body">
+        <div class="filter-bar">
+          <select id="filterMR" onchange="applyFilters()"><option value="">전체 MR</option></select>
+          <select id="filterStage" onchange="applyFilters()">
+            <option value="">전체 단계</option>
+            <option value="1단계">1단계 초기탐색</option><option value="2단계">2단계 관계형성</option>
+            <option value="3단계">3단계 검토시험</option><option value="4단계">4단계 정기처방</option><option value="5단계">5단계 핵심고객</option>
+          </select>
+          <select id="filterGrade" onchange="applyFilters()">
+            <option value="">전체 등급</option>
+            <option value="A">A등급 (핵심)</option><option value="B">B등급 (성장)</option><option value="C">C등급 (유지)</option>
+          </select>
+          <input type="text" id="searchInput" placeholder="거래처명 / 고객명 검색..." oninput="applyFilters()">
+          <button class="btn-reset" onclick="resetFilters()">초기화</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>거래처명</th><th>고객명</th><th>MR</th><th>현재단계</th><th>잠재등급</th><th>잠재점수</th><th>최근활동일</th><th>다음활동예정일</th></tr></thead>
+            <tbody id="custTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const RAW = ${jsonData};
+let filteredCusts = [...RAW.custList];
+let activeMR = null;
+let activeStage = null;
+let currentPage = 1;
+const PAGE_SIZE = 20;
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('todayLabel').textContent = RAW.today + ' 기준';
+  document.getElementById('kpi1').textContent = n(RAW.kpi.totalCustomers);
+  document.getElementById('kpi2').textContent = n(RAW.kpi.thisMonthActivity);
+  document.getElementById('kpi3').textContent = n(RAW.kpi.gradeACount);
+  document.getElementById('kpi4').textContent = n(RAW.kpi.upcomingCount);
+  renderPipeline();
+  renderMRTable();
+  const mrSel = document.getElementById('filterMR');
+  RAW.mrList.forEach(mr => {
+    const o = document.createElement('option');
+    o.value = mr; o.textContent = mr;
+    mrSel.appendChild(o);
+  });
+  renderDelayTable();
+  applyFilters();
+});
+
+function n(v) { return Number(v).toLocaleString('ko-KR'); }
+
+function renderPipeline() {
+  const stageNames = { '1단계':'초기탐색','2단계':'관계형성','3단계':'검토시험','4단계':'정기처방','5단계':'핵심고객' };
+  const grid = document.getElementById('pipelineGrid');
+  grid.innerHTML = '';
+  ['1단계','2단계','3단계','4단계','5단계'].forEach((s, i) => {
+    const cnt = RAW.stageMap[s] || 0;
+    const div = document.createElement('div');
+    div.className = 'stage-card stage-' + (i+1);
+    div.dataset.stage = s;
+    div.innerHTML = '<div class="stage-num">' + n(cnt) + '</div><div class="stage-label">' + stageNames[s] + '</div><div><span class="stage-badge">' + s + '</span></div>';
+    div.addEventListener('click', () => toggleStageFilter(s, div));
+    grid.appendChild(div);
+  });
+}
+
+function toggleStageFilter(stage, el) {
+  const cards = document.querySelectorAll('.stage-card');
+  if (activeStage === stage) {
+    activeStage = null;
+    cards.forEach(c => c.classList.remove('active'));
+  } else {
+    activeStage = stage;
+    cards.forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+  }
+  document.getElementById('filterStage').value = activeStage || '';
+  applyFilters();
+}
+
+function renderMRTable() {
+  const tbody = document.getElementById('mrTableBody');
+  const maxAct = Math.max.apply(null, RAW.mrPerf.map(r => r.이번달활동수).concat([1]));
+  tbody.innerHTML = RAW.mrPerf.map(r =>
+    '<tr data-mr="' + r.MR + '" onclick="toggleMRFilter(\'' + r.MR + '\', this)">' +
+    '<td><strong>' + r.MR + '</strong></td>' +
+    '<td>' + n(r.담당고객수) + '</td>' +
+    '<td><div class="rank-bar"><div class="bar" style="width:' + Math.round(r.이번달활동수/maxAct*80) + 'px"></div>' + n(r.이번달활동수) + '</div></td>' +
+    '<td><span class="badge badge-A">' + n(r.A등급수) + '</span></td>' +
+    '<td>' + n(r.단계45수) + '</td>' +
+    '<td>' + r.평균잠재점수 + '</td></tr>'
+  ).join('');
+}
+
+function toggleMRFilter(mr, row) {
+  const rows = document.querySelectorAll('#mrTableBody tr');
+  if (activeMR === mr) {
+    activeMR = null;
+    rows.forEach(r => r.classList.remove('active'));
+    document.getElementById('filterMR').value = '';
+  } else {
+    activeMR = mr;
+    rows.forEach(r => r.classList.remove('active'));
+    row.classList.add('active');
+    document.getElementById('filterMR').value = mr;
+  }
+  applyFilters();
+}
+
+function renderDelayTable() {
+  const tbody = document.getElementById('delayTableBody');
+  const list = RAW.delayedList;
+  document.getElementById('delayCount').textContent = list.length > 0 ? list.length + '건 지연' : '';
+  if (list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">지연된 거래처가 없습니다 ✓</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(r =>
+    '<tr>' +
+    '<td><strong>' + r.거래처명 + '</strong></td>' +
+    '<td>' + r.MR + '</td>' +
+    '<td><span class="badge ' + stageBadgeClass(r.현재단계) + '">' + r.현재단계 + '</span></td>' +
+    '<td><span class="badge badge-' + r.잠재등급 + '">' + r.잠재등급 + '</span></td>' +
+    '<td>' + r.다음활동예정일 + '</td>' +
+    '<td><span class="badge badge-delay">+' + r.지연일수 + '일</span></td></tr>'
+  ).join('');
+}
+
+function applyFilters() {
+  const mr = document.getElementById('filterMR').value;
+  const stage = document.getElementById('filterStage').value;
+  const grade = document.getElementById('filterGrade').value;
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (stage !== (activeStage || '')) {
+    activeStage = stage || null;
+    document.querySelectorAll('.stage-card').forEach(c => { c.classList.toggle('active', c.dataset.stage === activeStage); });
+  }
+  if (mr !== (activeMR || '')) {
+    activeMR = mr || null;
+    document.querySelectorAll('#mrTableBody tr').forEach(r => { r.classList.toggle('active', r.dataset.mr === activeMR); });
+  }
+  filteredCusts = RAW.custList.filter(r => {
+    if (mr && r.MR !== mr) return false;
+    if (stage && r.현재단계 !== stage) return false;
+    if (grade && r.잠재등급 !== grade) return false;
+    if (q && !r.거래처명.toLowerCase().includes(q) && !r.고객명.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  currentPage = 1;
+  renderCustTable();
+}
+
+function resetFilters() {
+  document.getElementById('filterMR').value = '';
+  document.getElementById('filterStage').value = '';
+  document.getElementById('filterGrade').value = '';
+  document.getElementById('searchInput').value = '';
+  activeMR = null; activeStage = null;
+  document.querySelectorAll('.stage-card').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('#mrTableBody tr').forEach(r => r.classList.remove('active'));
+  applyFilters();
+}
+
+function renderCustTable() {
+  const total = filteredCusts.length;
+  document.getElementById('custCount').textContent = total.toLocaleString('ko-KR') + '건';
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const slice = filteredCusts.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
+  const tbody = document.getElementById('custTableBody');
+  if (slice.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">조건에 맞는 거래처가 없습니다.</td></tr>';
+  } else {
+    tbody.innerHTML = slice.map(r =>
+      '<tr>' +
+      '<td><strong>' + r.거래처명 + '</strong></td>' +
+      '<td>' + r.고객명 + '</td>' +
+      '<td>' + r.MR + '</td>' +
+      '<td><span class="badge ' + stageBadgeClass(r.현재단계) + '">' + r.현재단계 + '</span></td>' +
+      '<td><span class="badge badge-' + r.잠재등급 + '">' + r.잠재등급 + '</span></td>' +
+      '<td>' + r.잠재점수 + '</td>' +
+      '<td>' + r.최근활동일 + '</td>' +
+      '<td>' + r.다음활동예정일 + '</td></tr>'
+    ).join('');
+  }
+  renderPagination(totalPages);
+}
+
+function renderPagination(totalPages) {
+  const pag = document.getElementById('pagination');
+  if (totalPages <= 1) { pag.innerHTML = ''; return; }
+  let html = '<button class="page-btn" onclick="goPage(' + (currentPage-1) + ')" ' + (currentPage===1?'disabled':'') + '>‹</button>';
+  const start = Math.max(1, currentPage-2);
+  const end = Math.min(totalPages, currentPage+2);
+  if (start > 1) html += '<button class="page-btn" onclick="goPage(1)">1</button><span class="page-info">…</span>';
+  for (let i=start; i<=end; i++) {
+    html += '<button class="page-btn ' + (i===currentPage?'active':'') + '" onclick="goPage(' + i + ')">' + i + '</button>';
+  }
+  if (end < totalPages) html += '<span class="page-info">…</span><button class="page-btn" onclick="goPage(' + totalPages + ')">' + totalPages + '</button>';
+  html += '<button class="page-btn" onclick="goPage(' + (currentPage+1) + ')" ' + (currentPage===totalPages?'disabled':'') + '>›</button>';
+  html += '<span class="page-info">' + currentPage + '/' + totalPages + '페이지 (' + filteredCusts.length.toLocaleString() + '건)</span>';
+  pag.innerHTML = html;
+}
+
+function goPage(p) {
+  const total = Math.ceil(filteredCusts.length / PAGE_SIZE);
+  if (p < 1 || p > total) return;
+  currentPage = p;
+  renderCustTable();
+  document.querySelector('.section:last-child').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function stageBadgeClass(s) {
+  const map = {'1단계':'badge-s1','2단계':'badge-s2','3단계':'badge-s3','4단계':'badge-s4','5단계':'badge-s5'};
+  return map[s] || '';
+}
+</script>
+</body>
+</html>`;
+}
