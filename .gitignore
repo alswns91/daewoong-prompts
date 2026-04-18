@@ -1,0 +1,18 @@
+# 의존성 패키지 (용량이 너무 커서 제외)
+node_modules/
+
+# Next.js 빌드 결과물
+.next/
+out/
+
+# 환경변수 파일 (보안상 제외)
+.env
+.env.local
+.env.*.local
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+
+# 로그
+npm-debug.log*
