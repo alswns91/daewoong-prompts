@@ -17,6 +17,7 @@ const CURRICULUM = [
       '생성형 AI가 현업에서 작동하는 방식 이해',
       '프롬프트 잘 쓰는 법 실습 (역할 부여 / 맥락 제공 / 구체적 출력 요청)',
       '나쁜 프롬프트 vs 좋은 프롬프트 비교 체험',
+      { text: '직접 작성 실습 — 노션 실습지 열기', link: 'https://www.notion.so/AI-34743925f1528097b2a1d388debf01c6?source=copy_link' },
     ],
     badge: null,
     preparedBy: '강사 준비',
@@ -208,15 +209,34 @@ function SessionCard({ item, onGo }) {
           </div>
 
           <ul className="space-y-1.5 mb-3">
-            {item.items.map((it, i) => (
-              <li key={i} className="flex items-start gap-2 text-slate-500 text-xs sm:text-sm">
-                <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                  style={{ background: item.accent }}>
-                  {i + 1}
-                </span>
-                {it}
-              </li>
-            ))}
+            {item.items.map((it, i) => {
+              const isLink = typeof it === 'object' && it.link
+              return (
+                <li key={i} className="flex items-start gap-2 text-xs sm:text-sm">
+                  <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0"
+                    style={{ background: item.accent }}>
+                    {i + 1}
+                  </span>
+                  {isLink ? (
+                    <a
+                      href={it.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 font-semibold rounded-lg px-2.5 py-0.5 transition-all hover:opacity-80"
+                      style={{ background: item.accent + '18', color: item.accent, border: `1px solid ${item.accent}30` }}
+                    >
+                      <span>📝</span>
+                      {it.text}
+                      <svg className="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  ) : (
+                    <span className="text-slate-500">{it}</span>
+                  )}
+                </li>
+              )
+            })}
           </ul>
 
           {item.supply && (

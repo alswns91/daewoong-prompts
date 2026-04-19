@@ -18,26 +18,18 @@ export const sections = [
   },
 ]
 
-// 실습1 Genspark 카테고리
+// 실습1 Genspark 카테고리 — 디자인 테마별
 export const categories = [
   { id: '전체', label: '전체' },
-  { id: 'A', label: 'A. 거래처 방문 & BD' },
-  { id: 'B', label: 'B. 제품 소개 & 론칭' },
-  { id: 'C', label: 'C. 임상 · 학술' },
-  { id: 'D', label: 'D. 경쟁 대응' },
-  { id: 'E', label: 'E. 환자 케이스' },
-  { id: 'F', label: 'F. 영업 보고' },
-  { id: 'G', label: 'G. 이벤트 & 관계' },
+  { id: 'L', label: '라이트 계열' },
+  { id: 'D', label: '다크 계열' },
+  { id: 'W', label: '웜 & 비비드' },
 ]
 
 export const categoryMeta = {
-  A: { name: '거래처 방문 & BD', color: '#0057A8' },
-  B: { name: '제품 소개 & 론칭', color: '#7C3AED' },
-  C: { name: '임상 · 학술',      color: '#059669' },
-  D: { name: '경쟁 대응',        color: '#DC2626' },
-  E: { name: '환자 케이스',      color: '#D97706' },
-  F: { name: '영업 보고',        color: '#0891B2' },
-  G: { name: '이벤트 & 관계',    color: '#DB2777' },
+  L: { name: '라이트 계열', color: '#1D4ED8' },
+  D: { name: '다크 계열',   color: '#1E1B4B' },
+  W: { name: '웜 & 비비드', color: '#EA580C' },
 }
 
 // ── NotebookLM 카테고리
@@ -3580,36 +3572,16 @@ SLIDE 5: CLOSING
 // 실습1 — Genspark 프롬프트 30개
 // ══════════════════════════════════════════════════════════════
 export const prompts = [
-  { id: 1,  section: 'session1', tool: 'genspark', category: 'A', title: '신규 거래처 첫 방문 BD',       description: '새 병원/의원 첫 방문 전, 담당 의사 맞춤형 제품 소개 BD 슬라이드. 커버·MR소개·제품·임상·비교·지원·마무리 구성.',                              slides: 10, status: 'ready', promptText: PROMPT_01, version: 'v2' },
-  { id: 2,  section: 'session1', tool: 'genspark', category: 'A', title: '기존 거래처 처방 증대 제안',    description: '이미 처방 중인 의사를 대상으로 처방 확대를 설득하는 BD 자료. 현재 처방 현황→목표→액션 플랜 구성.',                                          slides: 8,  status: 'ready', promptText: PROMPT_02, version: 'v2' },
-  { id: 3,  section: 'session1', tool: 'genspark', category: 'A', title: '휴면 거래처 재활성화 제안',     description: '처방이 끊긴 거래처를 다시 시작하기 위한 설득 자료. 업데이트된 임상 데이터와 새로운 지원 프로그램 중심.',                                         slides: 7,  status: 'ready', promptText: PROMPT_03, version: 'v2' },
-  { id: 4,  section: 'session1', tool: 'genspark', category: 'A', title: 'VIP 거래처 파트너십 제안',      description: '핵심 고객 의사를 위한 심층 파트너십 제안서. 장기 협력 관계, 전용 지원 프로그램, 감사 메시지 포함.',                                             slides: 10, status: 'ready', promptText: PROMPT_04, version: 'v2' },
-  { id: 5,  section: 'session1', tool: 'genspark', category: 'A', title: '복수 제품 크로스셀 제안',       description: '한 의사에게 2~3개 제품을 함께 제안하는 BD 자료. 제품 간 시너지와 처방 조합의 이점을 시각화.',                                                  slides: 10, status: 'ready', promptText: PROMPT_05, version: 'v2' },
-  { id: 6,  section: 'session1', tool: 'genspark', category: 'A', title: '계절/시즌 맞춤 처방 제안',      description: '독감철, 환절기, 연말 등 시즌별 처방 이슈에 맞춘 타이밍 BD 자료. 시즌 리스크와 솔루션 중심.',                                                   slides: 7,  status: 'ready', promptText: PROMPT_06, version: 'v2' },
-  { id: 7,  section: 'session1', tool: 'genspark', category: 'B', title: '신제품 론칭 소개 PPT',          description: '신규 출시 제품의 첫 소개 슬라이드. 제품 탄생 배경, 기전, 임상 하이라이트, 처방 포인트 풀 구성.',                                                slides: 12, status: 'ready', promptText: PROMPT_07, version: 'v2' },
-  { id: 8,  section: 'session1', tool: 'genspark', category: 'B', title: '성분/기전 중심 과학적 소개',    description: '약리학적 기전과 성분을 의사에게 설명하는 학술적 제품 소개 PPT. 기전 다이어그램, 작용 단계 시각화.',                                              slides: 10, status: 'ready', promptText: PROMPT_08, version: 'v2' },
-  { id: 9,  section: 'session1', tool: 'genspark', category: 'B', title: '복용 편의성 강조 소개',         description: '1일 1회, 제형 편의성, 복약 순응도를 중심으로 어필하는 소개 PPT. 환자 입장의 편의성 스토리라인.',                                                 slides: 8,  status: 'ready', promptText: PROMPT_09, version: 'v2' },
-  { id: 10, section: 'session1', tool: 'genspark', category: 'B', title: '보험 급여/가격 경쟁력 소개',    description: '급여 인정 범위, 본인부담금, 비용 효과성을 강조하는 PPT. 수치 비교와 환자 경제성 중심 구성.',                                                    slides: 8,  status: 'ready', promptText: PROMPT_10, version: 'v2' },
-  { id: 11, section: 'session1', tool: 'genspark', category: 'B', title: '복합제/콤보 처방 제안',         description: '병용 처방 또는 복합제의 이점을 설명하는 PPT. 단일 제제 대비 효과, 복약 편의성, 순응도 데이터.',                                                  slides: 10, status: 'ready', promptText: PROMPT_11, version: 'v2' },
-  { id: 12, section: 'session1', tool: 'genspark', category: 'C', title: '핵심 임상 논문 요약 발표',      description: '최신 임상 논문의 핵심을 의사에게 전달하는 학술 요약 PPT. 연구 설계·결과·결론 구조화 발표.',                                                     slides: 10, status: 'ready', promptText: PROMPT_12, version: 'v2' },
-  { id: 13, section: 'session1', tool: 'genspark', category: 'C', title: 'Real-World Evidence 공유',      description: '실제 처방 현장에서 수집된 RWE 데이터를 공유하는 PPT. 임상 현실과의 괴리 없는 근거 제시.',                                                       slides: 10, status: 'ready', promptText: PROMPT_13, version: 'v2' },
-  { id: 14, section: 'session1', tool: 'genspark', category: 'C', title: '가이드라인 업데이트 소개',      description: '최신 치료 지침 변경 내용을 공유하는 PPT. 개정 전후 비교, 우리 제품의 위치 강조.',                                                               slides: 8,  status: 'ready', promptText: PROMPT_14, version: 'v2' },
-  { id: 15, section: 'session1', tool: 'genspark', category: 'C', title: '부작용·안전성 프로파일 설명',   description: '안전성 우려를 객관적으로 해소하는 PPT. 부작용 발생률 비교, 모니터링 방법, 대처법 안내.',                                                       slides: 8,  status: 'ready', promptText: PROMPT_15, version: 'v2' },
-  { id: 16, section: 'session1', tool: 'genspark', category: 'C', title: '학술 세미나 발표 자료',         description: '병원 내 소규모 CME/세미나 발표용 풀 학술 PPT. 도입·본론·결론·Q&A 완전 구성.',                                                                 slides: 20, status: 'ready', promptText: PROMPT_16, version: 'v2' },
-  { id: 17, section: 'session1', tool: 'genspark', category: 'D', title: '경쟁 제품 비교 분석표',         description: '타사 제품과의 객관적 비교를 시각화한 PPT. 효능·안전성·편의성·가격 항목별 비교.',                                                               slides: 8,  status: 'ready', promptText: PROMPT_17, version: 'v2' },
-  { id: 18, section: 'session1', tool: 'genspark', category: 'D', title: '타사 → 대웅 스위칭 제안',       description: '현재 타사 제품을 처방 중인 의사를 대상으로 전환을 설득하는 PPT. 전환 이유와 단계별 전환 계획.',                                                  slides: 8,  status: 'ready', promptText: PROMPT_18, version: 'v2' },
-  { id: 19, section: 'session1', tool: 'genspark', category: 'D', title: '제네릭 대응 전략 PPT',          description: '특허 만료 후 오리지널 제품 유지를 위한 전략 PPT. 오리지널의 차별점과 제네릭 전환 리스크.',                                                       slides: 8,  status: 'ready', promptText: PROMPT_19, version: 'v2' },
-  { id: 20, section: 'session1', tool: 'genspark', category: 'D', title: '가격 vs 효능 포지셔닝',         description: '비용 대비 효과를 논리적으로 설득하는 PPT. 비싸도 처방해야 하는 이유를 총 치료 비용 관점으로 증명.',                                              slides: 7,  status: 'ready', promptText: PROMPT_20, version: 'v2' },
-  { id: 21, section: 'session1', tool: 'genspark', category: 'E', title: '환자 프로파일별 처방 추천',     description: '다양한 환자 유형별로 어떤 환자에게 처방할지 명확히 제시하는 PPT. 프로파일 매칭 시각화.',                                                        slides: 8,  status: 'ready', promptText: PROMPT_21, version: 'v2' },
-  { id: 22, section: 'session1', tool: 'genspark', category: 'E', title: '처방 성공 케이스 스터디',       description: '실제 처방 성공 사례를 스토리텔링 방식으로 전달하는 PPT. Before/After, 치료 결과 포함.',                                                       slides: 8,  status: 'ready', promptText: PROMPT_22, version: 'v2' },
-  { id: 23, section: 'session1', tool: 'genspark', category: 'E', title: '처방 전환 단계별 가이드',       description: '첫 처방→유지→증량 단계별 처방 전략을 안내하는 PPT. 단계별 체크포인트와 MR 액션 포함.',                                                         slides: 8,  status: 'ready', promptText: PROMPT_23, version: 'v2' },
-  { id: 24, section: 'session1', tool: 'genspark', category: 'E', title: '적응증별 처방 플로우',          description: '질환별 처방 결정 흐름을 시각화한 PPT. 적응증→환자 선별→용량 선택→모니터링 플로우.',                                                            slides: 8,  status: 'ready', promptText: PROMPT_24, version: 'v2' },
-  { id: 25, section: 'session1', tool: 'genspark', category: 'F', title: '주간 영업 활동 보고',           description: '팀장/소장 보고용 주간 영업 활동 요약 PPT. 방문 현황, 처방 변화, 이슈, 다음 주 계획.',                                                          slides: 6,  status: 'ready', promptText: PROMPT_25, version: 'v2' },
-  { id: 26, section: 'session1', tool: 'genspark', category: 'F', title: '월간 성과 & 목표 현황',         description: '본부 보고용 월간 성과 PPT. 목표 대비 달성률, 제품별 처방 현황, KPI 대시보드 시각화.',                                                         slides: 8,  status: 'ready', promptText: PROMPT_26, version: 'v2' },
-  { id: 27, section: 'session1', tool: 'genspark', category: 'F', title: '분기 전략 계획 발표',           description: '분기 킥오프 또는 전략 회의용 PPT. 지난 분기 리뷰, 이번 분기 목표, 중점 활동 계획.',                                                            slides: 10, status: 'ready', promptText: PROMPT_27, version: 'v2' },
-  { id: 28, section: 'session1', tool: 'genspark', category: 'G', title: '런치 미팅 / 제품 설명회',       description: '점심 시간을 활용한 제품 설명회 자료. 짧고 임팩트 있는 핵심 메시지 중심, 5~7분 발표용.',                                                        slides: 6,  status: 'ready', promptText: PROMPT_28, version: 'v2' },
-  { id: 29, section: 'session1', tool: 'genspark', category: 'G', title: '심포지엄 발표 자료',            description: '병원 내 소규모 의학 심포지엄 발표용 PPT. 학술적 권위와 비주얼 임팩트를 동시에 갖춘 구성.',                                                      slides: 20, status: 'ready', promptText: PROMPT_29, version: 'v2' },
-  { id: 30, section: 'session1', tool: 'genspark', category: 'G', title: '연말/시즌 인사 & 감사 자료',    description: '연말·명절·기념일에 거래처 의사에게 전달하는 감사 인사 PPT. 따뜻한 디자인과 진심 메시지.',                                                      slides: 5,  status: 'ready', promptText: PROMPT_30, version: 'v2' },
+  { id: 1,  section: 'session1', tool: 'genspark', category: 'L', title: '코퍼레이트 블루',   description: '화이트 배경 + 블루 포인트. 정돈된 비즈니스 문서 느낌. KPI 카드·비교 박스 중심.',              slides: 8, status: 'ready', promptText: PROMPT_01, version: 'v2' },
+  { id: 7,  section: 'session1', tool: 'genspark', category: 'L', title: '클린 메디컬 그린',  description: '화이트 + 에메랄드 그린. 청결하고 신뢰감 있는 임상·헬스케어 스타일.',                              slides: 8, status: 'ready', promptText: PROMPT_07, version: 'v2' },
+  { id: 25, section: 'session1', tool: 'genspark', category: 'L', title: '미니멀 슬레이트',   description: '연회색 배경 + 다크 슬레이트. 여백 중심의 절제된 세련미. 모던하고 깔끔한 레이아웃.',               slides: 8, status: 'ready', promptText: PROMPT_25, version: 'v2' },
+  { id: 26, section: 'session1', tool: 'genspark', category: 'L', title: '프레쉬 민트',       description: '화이트 + 틸 민트 포인트. 신선하고 청량한 헬스케어 스타일.',                                         slides: 8, status: 'ready', promptText: PROMPT_26, version: 'v2' },
+  { id: 2,  section: 'session1', tool: 'genspark', category: 'D', title: '딥 네이비 골드',    description: '다크 네이비 배경 + 골드 포인트. 프리미엄·고급스러운 분위기. 수치 박스 크게 강조.',                 slides: 8, status: 'ready', promptText: PROMPT_02, version: 'v2' },
+  { id: 8,  section: 'session1', tool: 'genspark', category: 'D', title: '임팩트 다크',        description: '풀 다크 배경 + 시안 글로우. 강렬하고 현대적인 임팩트 PT 스타일. 대형 숫자 중심.',                   slides: 8, status: 'ready', promptText: PROMPT_08, version: 'v2' },
+  { id: 21, section: 'session1', tool: 'genspark', category: 'D', title: '로얄 퍼플',          description: '딥 퍼플 배경 + 바이올렛 포인트. 고급감과 창의성. 혁신적인 분위기.',                                 slides: 8, status: 'ready', promptText: PROMPT_21, version: 'v2' },
+  { id: 12, section: 'session1', tool: 'genspark', category: 'W', title: '웜 아이보리',        description: '크림 아이보리 배경 + 브라운 포인트. 학술·논문 스타일. 따뜻하고 격식 있는 분위기.',                 slides: 8, status: 'ready', promptText: PROMPT_12, version: 'v2' },
+  { id: 17, section: 'session1', tool: 'genspark', category: 'W', title: '에너제틱 코랄',      description: '따뜻한 오렌지-코랄 톤. 둥근 카드와 친근한 아이콘. 활기차고 감성적인 분위기.',                       slides: 8, status: 'ready', promptText: PROMPT_17, version: 'v2' },
+  { id: 28, section: 'session1', tool: 'genspark', category: 'W', title: '볼드 스칼렛',        description: '화이트 배경 + 딥 레드 포인트. 강렬하고 자신감 있는 임팩트 PT 스타일.',                              slides: 8, status: 'ready', promptText: PROMPT_28, version: 'v2' },
 
   // ══════════════════════════════════════════════════════════════
   // NotebookLM 슬라이드 디자인 프롬프트 30개 (실습1)

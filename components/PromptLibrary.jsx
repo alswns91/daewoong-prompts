@@ -20,15 +20,11 @@ const FONTS = [
 
 const SLIDE_OPTIONS = [5, 6, 7, 8, 10, 12, 15, 20, 25, 30]
 
-// 카테고리별 카드 배경 스타일
+// 카테고리별 카드 배경 스타일 (디자인 테마 기반)
 const PREVIEW_STYLES = {
-  A: { bg: '#1A2E5A', bar: '#3B82F6' },
-  B: { bg: '#4C1D95', bar: '#A78BFA' },
-  C: { bg: '#064E3B', bar: '#34D399' },
-  D: { bg: '#7F1D1D', bar: '#F87171' },
-  E: { bg: '#78350F', bar: '#FCD34D' },
-  F: { bg: '#0C4A6E', bar: '#38BDF8' },
-  G: { bg: '#831843', bar: '#F472B6' },
+  L: { bg: '#1D4ED8', bar: '#93C5FD' },  // 라이트 계열 — 블루
+  D: { bg: '#0F1F3D', bar: '#C9A84C' },  // 다크 계열 — 네이비/골드
+  W: { bg: '#7C2D12', bar: '#FED7AA' },  // 웜 & 비비드 — 코랄
 }
 
 function SlidePreview({ category }) {
@@ -77,11 +73,6 @@ function PromptCard({ prompt, meta, copiedId, onCopy, onOpen }) {
             style={{ background: meta.color + '15', color: meta.color }}>
             {meta.name}
           </span>
-          {isV2 && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white">
-              2단계
-            </span>
-          )}
           {prompt.slides && <span className="ml-auto text-[10px] text-slate-400">{prompt.slides}장</span>}
         </div>
         <h3 className="text-slate-800 font-semibold text-sm mb-1 leading-snug">{prompt.title}</h3>
@@ -212,7 +203,15 @@ export default function PromptLibrary({ initialSection = 'session1', onBack, onS
   const handleCardCopy = async (e, prompt) => {
     e.stopPropagation()
     try {
-      const text = buildFinalPrompt(prompt.promptText, prompt.slides, '', selectedFont)
+      let text
+      if (prompt.version === 'v2') {
+        const scenario = scenarios.find(s => s.id === prompt.id)
+        text = scenario
+          ? buildStep2Prompt(scenario).replace('한국어 폰트: Pretendard 또는 Noto Sans KR', `한국어 폰트: ${selectedFont}`)
+          : buildFinalPrompt(prompt.promptText, prompt.slides, '', selectedFont)
+      } else {
+        text = buildFinalPrompt(prompt.promptText, prompt.slides, '', selectedFont)
+      }
       await navigator.clipboard.writeText(text)
       setCopiedId(prompt.id)
       setTimeout(() => setCopiedId(null), 2000)
@@ -379,17 +378,17 @@ export default function PromptLibrary({ initialSection = 'session1', onBack, onS
             {/* ── Genspark 탭 ── */}
             {activeTool === 'genspark' && (
               <>
-                {/* 사용 안내 — 접을 수 있는 작은 배너 */}
+                {/* 사용 안내 */}
                 <div className="mb-5 p-3.5 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">?</div>
+                  <div className="flex-shrink-0 w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">!</div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-blue-800 mb-1">2단계 워크플로우 안내</p>
+                    <p className="text-xs font-semibold text-blue-800 mb-1">디자인 템플릿 사용법</p>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-blue-700">
-                      <span>① 카드 클릭 → 편집</span>
+                      <span>① 원하는 디자인 카드 선택</span>
                       <span className="text-blue-300">›</span>
-                      <span>② <strong>Step 1</strong> 복사 → ChatGPT/Claude에 내 자료 붙여넣기</span>
+                      <span>② <strong>복사</strong> → Genspark에 붙여넣기 → 템플릿 저장</span>
                       <span className="text-blue-300">›</span>
-                      <span>③ AI 원고 받기 → <strong>Step 2</strong> 프롬프트를 젠스파크에 붙여넣기</span>
+                      <span>③ 내용(텍스트)은 Genspark에서 따로 입력</span>
                     </div>
                   </div>
                 </div>
@@ -733,20 +732,18 @@ function LegacyModal({ prompt, slideCount, setSlideCount, userContent, setUserCo
 }
 
 // ══════════════════════════════════════════════════════════════
-// TwoStep 모달 — V2용 (Step1 + Step2 탭)
+// 템플릿 모달 — V2용 (디자인 템플릿 복사)
 // ══════════════════════════════════════════════════════════════
 function TwoStepModal({ prompt, categoryColor, categoryName, selectedFont, onClose }) {
-  const [activeStep, setActiveStep] = useState(1)
-  const [step1Copied, setStep1Copied] = useState(false)
-  const [step2Copied, setStep2Copied] = useState(false)
-  const [step1Output, setStep1Output] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [slideCount, setSlideCount] = useState(null) // null = 기본값(8장)
 
   const scenario = scenarios.find(s => s.id === prompt.id)
   if (!scenario) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
         <div className="bg-white rounded-xl p-5 max-w-sm" onClick={e => e.stopPropagation()}>
-          <p className="text-sm text-slate-600">V2 시나리오 데이터를 찾을 수 없습니다.</p>
+          <p className="text-sm text-slate-600">시나리오 데이터를 찾을 수 없습니다.</p>
           <button onClick={onClose} className="mt-3 px-4 py-2 bg-slate-100 rounded-lg text-xs">닫기</button>
         </div>
       </div>
@@ -754,17 +751,14 @@ function TwoStepModal({ prompt, categoryColor, categoryName, selectedFont, onClo
   }
 
   const preset = designPresets[scenario.preset]
-  const step1Text = buildStep1Prompt(scenario)
-  const step2TextRaw = buildStep2Prompt(scenario)
-  // 폰트를 Step2 프롬프트에 삽입
-  const step2TextWithFont = step2TextRaw.replace('한국어 폰트: Pretendard 또는 Noto Sans KR', `한국어 폰트: ${selectedFont}`)
-  const step2Text = step1Output.trim()
-    ? step2TextWithFont.replace('[여기에 Step 1 원고 붙여넣기]', step1Output.trim())
-    : step2TextWithFont
+  const defaultCount = scenario.slides.length
+  const activeCount = slideCount || defaultCount
+  const templateText = buildStep2Prompt(scenario, activeCount)
+    .replace('한국어 폰트: Pretendard 또는 Noto Sans KR', `한국어 폰트: ${selectedFont}`)
 
-  const copy = async (text, setCopied) => {
+  const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(text)
+      await navigator.clipboard.writeText(templateText)
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     } catch { alert('복사 실패') }
@@ -779,9 +773,8 @@ function TwoStepModal({ prompt, categoryColor, categoryName, selectedFont, onClo
         {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2.5 min-w-0">
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white flex-shrink-0">2단계</span>
             <div className="min-w-0">
-              <p className="text-[10px] text-slate-400">{categoryName} · {scenario.slides.length}장 · {preset.name}</p>
+              <p className="text-[10px] text-slate-400">{categoryName} · {activeCount}장 · {preset.name}</p>
               <h2 className="text-slate-800 font-bold text-sm leading-tight truncate">{prompt.title}</h2>
             </div>
           </div>
@@ -792,126 +785,89 @@ function TwoStepModal({ prompt, categoryColor, categoryName, selectedFont, onClo
           </button>
         </div>
 
-        {/* Step 탭 */}
-        <div className="flex border-b border-slate-100">
-          {[
-            { n: 1, label: 'Step 1', sub: 'ChatGPT / Claude 원고 정제' },
-            { n: 2, label: 'Step 2', sub: 'Genspark 디자인 렌더링' },
-          ].map(t => (
-            <button key={t.n} onClick={() => setActiveStep(t.n)}
-              className={`flex-1 flex items-center gap-2 px-5 py-3 border-b-2 transition-all ${
-                activeStep === t.n ? 'border-blue-600 bg-blue-50/50' : 'border-transparent hover:bg-slate-50'
-              }`}>
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                activeStep === t.n ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'
-              }`}>{t.n}</span>
-              <div className="text-left">
-                <div className={`text-xs font-semibold ${activeStep === t.n ? 'text-blue-600' : 'text-slate-600'}`}>{t.label}: {t.sub}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-
         {/* 스크롤 영역 */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
-          {/* Step 1 */}
-          {activeStep === 1 && (
-            <div className="p-5 space-y-4">
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 leading-relaxed">
-                <strong>사용법:</strong> 아래 프롬프트 복사 → ChatGPT/Claude에 붙여넣기 →
-                <span className="bg-amber-200 px-1 rounded mx-1">[여기에 내 자료를 붙여넣으세요]</span>
-                자리에 내 자료 넣기 → AI 원고 받기 → Step 2 탭으로 이동
-              </div>
+          {/* 사용 방법 */}
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-800 leading-relaxed">
+            <div className="flex items-start gap-2">
+              <span className="font-bold flex-shrink-0">사용법</span>
+              <span>
+                ① 슬라이드 장수 선택 →
+                ② 아래 템플릿 복사 →
+                ③ Genspark에 붙여넣기 · 저장 →
+                ④ 내용(텍스트)은 Genspark에서 따로 입력
+              </span>
+            </div>
+          </div>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
-                  <span className="text-[11px] text-slate-500 font-medium">Step 1 프롬프트 — ChatGPT / Claude / NotebookLM</span>
-                  <button onClick={() => copy(step1Text, setStep1Copied)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white transition-colors ${step1Copied ? 'bg-green-500' : 'bg-blue-600'}`}>
-                    {step1Copied ? '✓ 복사됨' : '복사'}
+          {/* 슬라이드 장수 선택 */}
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <p className="text-xs font-semibold text-slate-600 mb-2.5">
+              슬라이드 장수
+              <span className="font-normal text-slate-400 ml-1.5">(기본 {defaultCount}장)</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {[5, 6, 7, 8, 10, 12, 15, 20, 25, 30].map(n => {
+                const isActive = n === activeCount
+                const isDefault = n === defaultCount
+                return (
+                  <button key={n}
+                    onClick={() => setSlideCount(n === defaultCount ? null : n)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
+                    style={isActive
+                      ? { backgroundColor: categoryColor, color: '#fff', borderColor: categoryColor }
+                      : { backgroundColor: '#fff', color: '#64748B', borderColor: '#E2E8F0' }
+                    }>
+                    {n}장{isDefault && <span className="opacity-60 ml-0.5 font-normal"> ★</span>}
                   </button>
-                </div>
-                <pre className="px-4 py-3 text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed font-mono max-h-80 overflow-y-auto bg-white">
-                  {step1Text}
-                </pre>
-              </div>
+                )
+              })}
+            </div>
+            {activeCount > defaultCount && (
+              <p className="mt-2 text-[11px] text-amber-600">
+                +{activeCount - defaultCount}장 추가 — 동일 디자인으로 콘텐츠 슬라이드가 자동 추가됩니다
+              </p>
+            )}
+          </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                  Step 1 결과 저장 <span className="font-normal text-slate-400">— 붙여넣으면 Step 2에 자동 삽입</span>
-                </label>
-                <textarea value={step1Output} onChange={e => setStep1Output(e.target.value)}
-                  placeholder="ChatGPT/Claude에서 받은 정제 원고를 여기에 붙여넣으세요 (선택)"
-                  className="w-full h-28 px-3 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 focus:outline-none text-[11px] text-slate-700 resize-none leading-relaxed placeholder-slate-300 bg-slate-50" />
-                {step1Output.trim() && (
-                  <p className="mt-1 text-[11px] text-green-600 font-medium">✓ 저장됨 — Step 2 탭의 프롬프트에 자동 삽입됩니다</p>
-                )}
-              </div>
+          {/* 디자인 미리보기 */}
+          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="w-10 h-10 rounded-lg flex-shrink-0"
+              style={{ background: preset.colors.bg, border: `2px solid ${preset.colors.accent}` }} />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-700">{preset.name}</p>
+              <p className="text-[10px] text-slate-500 truncate">{preset.mood} · 폰트: {selectedFont}</p>
+            </div>
+            <div className="flex gap-1 ml-auto">
+              {Object.values(preset.colors).slice(0, 5).map((v, i) => (
+                <div key={i} className="w-4 h-4 rounded-sm border border-white/50" style={{ background: v }} />
+              ))}
+            </div>
+          </div>
 
-              <button onClick={() => setActiveStep(2)}
-                className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors">
-                Step 2로 이동 →
+          {/* 프롬프트 박스 */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+              <span className="text-[11px] text-slate-500 font-medium">디자인 템플릿 프롬프트 — Genspark · {activeCount}장</span>
+              <button onClick={handleCopy}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white transition-colors"
+                style={{ backgroundColor: copied ? '#10B981' : categoryColor }}>
+                {copied ? '✓ 복사됨' : '복사'}
               </button>
             </div>
-          )}
+            <pre className="px-4 py-3 text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed font-mono max-h-96 overflow-y-auto bg-white">
+              {templateText}
+            </pre>
+          </div>
 
-          {/* Step 2 */}
-          {activeStep === 2 && (
-            <div className="p-5 space-y-4">
-              {/* 디자인 미리보기 */}
-              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <div className="w-10 h-10 rounded-lg flex-shrink-0"
-                  style={{ background: preset.colors.bg, border: `2px solid ${preset.colors.accent}` }} />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-700">{preset.name}</p>
-                  <p className="text-[10px] text-slate-500 truncate">{preset.mood} · 폰트: {selectedFont}</p>
-                </div>
-                <div className="flex gap-1 ml-auto">
-                  {Object.values(preset.colors).slice(0, 5).map((v, i) => (
-                    <div key={i} className="w-4 h-4 rounded-sm border border-white/50" style={{ background: v }} />
-                  ))}
-                </div>
-              </div>
+          {/* 복사 버튼 */}
+          <button onClick={handleCopy}
+            className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all hover:opacity-90 active:scale-[0.98]"
+            style={{ backgroundColor: copied ? '#10B981' : categoryColor }}>
+            {copied ? '✓ 복사 완료 — Genspark에 붙여넣으세요' : '템플릿 복사하기'}
+          </button>
 
-              {step1Output.trim() ? (
-                <div className="flex items-center gap-1.5 text-[11px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Step 1 원고 자동 삽입됨 — 아래 프롬프트를 그대로 젠스파크에 붙여넣으세요
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  Step 1 결과가 없습니다 — 복사 후
-                  <span className="bg-amber-200 px-1 rounded">[여기에 Step 1 원고 붙여넣기]</span>
-                  자리에 직접 붙여넣어도 됩니다
-                </div>
-              )}
-
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    Step 2 프롬프트 — Genspark
-                    {step1Output.trim() && <span className="text-green-600 ml-1.5">+ 원고 포함</span>}
-                  </span>
-                  <button onClick={() => copy(step2Text, setStep2Copied)}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white transition-colors"
-                    style={{ backgroundColor: step2Copied ? '#10B981' : categoryColor }}>
-                    {step2Copied ? '✓ 복사됨' : '젠스파크로 복사'}
-                  </button>
-                </div>
-                <pre className="px-4 py-3 text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed font-mono max-h-80 overflow-y-auto bg-white">
-                  {step2Text}
-                </pre>
-              </div>
-
-              <button onClick={() => setActiveStep(1)}
-                className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-600 font-semibold text-sm hover:bg-slate-200 transition-colors">
-                ← Step 1로 돌아가기
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
