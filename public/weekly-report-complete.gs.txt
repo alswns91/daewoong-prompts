@@ -1,0 +1,522 @@
+/**
+ * ============================================================
+ * 📋 [대웅제약] 주간 영업 보고서 자동 발송 스크립트
+ * ============================================================
+ *
+ * ▶ 트리거 설정 방법:
+ *   1. Apps Script 편집기 상단 → "트리거" 아이콘 클릭 (시계 모양)
+ *   2. 우측 하단 "+ 트리거 추가" 클릭
+ *   3. 실행할 함수: sendWeeklyReport
+ *   4. 이벤트 소스: 시간 기반
+ *   5. 시간 기반 트리거 유형: 주간 타이머
+ *   6. 요일: 매주 금요일
+ *   7. 시간: 오후 5시 ~ 6시 (17:00 ~ 18:00)
+ *   8. 저장
+ *
+ * ▶ 최초 실행 전 반드시 아래 설정값을 변경하세요.
+ * ============================================================
+ */
+
+// ============================================================
+// ⚙️ 설정값 (반드시 수정 필요)
+// ============================================================
+const SPREADSHEET_ID = '';   // 스프레드시트 ID
+const REPORT_EMAIL   = '';             // 수신 이메일
+const OFFICE_NAME    = '';                  // 사무소명
+
+// ============================================================
+// 📌 시트명 상수
+// ============================================================
+const SHEET_ORG      = '조직도및MR';
+const SHEET_CUSTOMER = '고객마스터';
+const SHEET_ACTIVITY = '활동로그';
+
+// ============================================================
+// 🎨 디자인 상수
+// ============================================================
+const COLOR_HEADER   = '#1A2E5A';
+const COLOR_SUBHEAD  = '#2C4A8A';
+const COLOR_ACCENT   = '#E8620A';
+const COLOR_BG_LIGHT = '#F4F7FB';
+const COLOR_BORDER   = '#D0DAE8';
+
+
+// ============================================================
+// 🚀 메인 함수
+// ============================================================
+function sendWeeklyReport() {
+  const ss   = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const today = new Date();
+
+  // 이번 주 월요일 계산
+  const dayOfWeek  = today.getDay(); // 0=일, 1=월 ... 6=토
+  const diffToMon  = (dayOfWeek === 0) ? -6 : 1 - dayOfWeek;
+  const monday     = new Date(today);
+  monday.setDate(today.getDate() + diffToMon);
+  monday.setHours(0, 0, 0, 0);
+
+  // 다음 주 월~금 계산
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(monday.getDate() + 7);
+  const nextFriday = new Date(nextMonday);
+  nextFriday.setDate(nextMonday.getDate() + 4);
+  nextFriday.setHours(23, 59, 59, 999);
+
+  // 주차 계산
+  const weekNum = getWeekNumber(today);
+
+  // 데이터 로드
+  const activityData = loadSheet(ss, SHEET_ACTIVITY);
+  const customerData = loadSheet(ss, SHEET_CUSTOMER);
+  const orgData      = loadSheet(ss, SHEET_ORG);
+
+  // 각 섹션 데이터 수집
+  const weeklyActs   = getWeeklyActivities(activityData, monday, today);
+  const stageChanges = getStageChanges(activityData, monday, today);
+  const gradeAVisit  = getGradeAVisits(activityData, customerData, monday, today);
+  const nextWeekPlan = getNextWeekPlan(customerData, nextMonday, nextFriday);
+  const delayed      = getDelayedVisits(customerData, today);
+
+  // HTML 생성
+  const subject     = `[대웅제약] ${OFFICE_NAME} 주간 영업 보고서 - ${today.getFullYear()}년 ${String(today.getMonth()+1).padStart(2,'0')}월 ${weekNum}주차`;
+  const htmlContent = buildHtml(today, monday, weekNum, weeklyActs, stageChanges, gradeAVisit, nextWeekPlan, delayed);
+
+  // 이메일 발송
+  GmailApp.sendEmail(REPORT_EMAIL, subject, '', { htmlBody: htmlContent });
+
+  Logger.log(`✅ 보고서 발송 완료: ${subject}`);
+}
+
+
+// ============================================================
+// 📊 섹션 1: 이번 주 MR별 활동건수 & 평균활동점수
+// ============================================================
+function getWeeklyActivities(activityData, monday, today) {
+  /*
+   * 활동로그 컬럼 (0-indexed):
+   *   B(1)=활동일자, G(6)=MR, U(20)=활동점수
+   */
+  const result = {}; // { MR명: { count, totalScore } }
+
+  const mondayStr = formatDate(monday);
+  const todayStr  = formatDate(today);
+
+  activityData.forEach(row => {
+    const actDate = String(row[1]).trim();   // B: 활동일자
+    const mr      = String(row[6]).trim();   // G: MR
+    const office  = String(row[4]).trim();   // E: 사무소
+    const score   = parseFloat(row[20]) || 0; // U: 활동점수
+
+    if (office !== OFFICE_NAME) return;
+    if (!mr || mr === 'MR') return;
+    if (actDate < mondayStr || actDate > todayStr) return;
+
+    if (!result[mr]) result[mr] = { count: 0, totalScore: 0 };
+    result[mr].count++;
+    result[mr].totalScore += score;
+  });
+
+  // 배열로 변환 & 정렬 (활동건수 내림차순)
+  return Object.entries(result)
+    .map(([mr, d]) => ({
+      mr,
+      count: d.count,
+      avgScore: d.count > 0 ? Math.round((d.totalScore / d.count) * 10) / 10 : 0
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
+
+// ============================================================
+// 📊 섹션 2: 단계 변화 현황 (상승 / 하락)
+// ============================================================
+function getStageChanges(activityData, monday, today) {
+  /*
+   * 활동로그 컬럼:
+   *   B(1)=활동일자, E(4)=사무소, I(8)=거래처명, Q(16)=단계변화
+   */
+  const mondayStr = formatDate(monday);
+  const todayStr  = formatDate(today);
+
+  let riseSet  = new Set(); // 상승 거래처 (중복 제거)
+  let dropSet  = new Set(); // 하락 거래처
+
+  activityData.forEach(row => {
+    const actDate = String(row[1]).trim();
+    const office  = String(row[4]).trim();
+    const biz     = String(row[8]).trim();   // I: 거래처명
+    const change  = String(row[16]).trim();  // Q: 단계변화
+
+    if (office !== OFFICE_NAME) return;
+    if (actDate < mondayStr || actDate > todayStr) return;
+    if (!biz || biz === '거래처명') return;
+
+    if (change === '상승') riseSet.add(biz);
+    if (change === '하락') dropSet.add(biz);
+  });
+
+  return { rise: riseSet.size, drop: dropSet.size };
+}
+
+
+// ============================================================
+// 📊 섹션 3: A등급 방문 현황
+// ============================================================
+function getGradeAVisits(activityData, customerData, monday, today) {
+  /*
+   * 고객마스터: H(7)=고객유형, M(12)=잠재등급, E(4)=MR, C(2)=사무소, F(5)=거래처명
+   * 활동로그:   B(1)=활동일자, E(4)=사무소, I(8)=거래처명
+   */
+  const mondayStr = formatDate(monday);
+  const todayStr  = formatDate(today);
+
+  // A등급 거래처 목록 (사무소 필터)
+  const gradeABiz = new Set();
+  customerData.forEach(row => {
+    const office = String(row[2]).trim();  // C: 사무소
+    const grade  = String(row[12]).trim(); // M: 잠재등급
+    const biz    = String(row[5]).trim();  // F: 거래처명
+
+    if (office === OFFICE_NAME && grade === 'A' && biz && biz !== '거래처명') {
+      gradeABiz.add(biz);
+    }
+  });
+
+  // 이번 주에 방문한 A등급 거래처
+  const visitedA = new Set();
+  activityData.forEach(row => {
+    const actDate = String(row[1]).trim();
+    const office  = String(row[4]).trim();
+    const biz     = String(row[8]).trim();
+
+    if (office !== OFFICE_NAME) return;
+    if (actDate < mondayStr || actDate > todayStr) return;
+    if (gradeABiz.has(biz)) visitedA.add(biz);
+  });
+
+  return { visited: visitedA.size, total: gradeABiz.size };
+}
+
+
+// ============================================================
+// 📊 섹션 4: 다음 주 방문 예정 (상위 10개)
+// ============================================================
+function getNextWeekPlan(customerData, nextMonday, nextFriday) {
+  /*
+   * 고객마스터: C(2)=사무소, E(4)=MR, F(5)=거래처명, K(10)=현재단계, S(18)=다음활동예정일
+   * ※ 헤더 행 제외 후 작업
+   */
+  const nextMonStr = formatDate(nextMonday);
+  const nextFriStr = formatDate(nextFriday);
+
+  const plans = [];
+  customerData.forEach(row => {
+    const office   = String(row[2]).trim();  // C: 사무소
+    const mr       = String(row[4]).trim();  // E: MR
+    const biz      = String(row[5]).trim();  // F: 거래처명
+    const stage    = String(row[10]).trim(); // K: 현재단계
+    const nextDate = normalizeDate(row[18]); // S: 다음활동예정일
+
+    if (office !== OFFICE_NAME) return;
+    if (!biz || biz === '거래처명') return;
+    if (!nextDate) return;
+
+    if (nextDate >= nextMonStr && nextDate <= nextFriStr) {
+      plans.push({ biz, mr, stage, nextDate });
+    }
+  });
+
+  // 날짜 오름차순 정렬 후 상위 10개
+  plans.sort((a, b) => a.nextDate.localeCompare(b.nextDate));
+  return plans.slice(0, 10);
+}
+
+
+// ============================================================
+// 📊 섹션 5: 방문 지연 거래처
+// ============================================================
+function getDelayedVisits(customerData, today) {
+  /*
+   * 고객마스터: C(2)=사무소, E(4)=MR, F(5)=거래처명, S(18)=다음활동예정일
+   */
+  const todayStr = formatDate(today);
+  const delayed  = [];
+
+  customerData.forEach(row => {
+    const office   = String(row[2]).trim();
+    const mr       = String(row[4]).trim();
+    const biz      = String(row[5]).trim();
+    const nextDate = normalizeDate(row[18]);
+
+    if (office !== OFFICE_NAME) return;
+    if (!biz || biz === '거래처명') return;
+    if (!nextDate || nextDate === '') return;
+    if (nextDate >= todayStr) return; // 오늘 이후는 제외
+
+    const diffDays = Math.floor((today - new Date(nextDate)) / (1000 * 60 * 60 * 24));
+    if (diffDays > 0) {
+      delayed.push({ biz, mr, nextDate, diffDays });
+    }
+  });
+
+  // 지연일수 내림차순
+  delayed.sort((a, b) => b.diffDays - a.diffDays);
+  return delayed;
+}
+
+
+// ============================================================
+// 🏗️ HTML 이메일 빌더
+// ============================================================
+function buildHtml(today, monday, weekNum, weeklyActs, stageChanges, gradeAVisit, nextWeekPlan, delayed) {
+  const todayStr  = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일`;
+  const mondayStr = `${monday.getFullYear()}년 ${monday.getMonth()+1}월 ${monday.getDate()}일`;
+  const totalActs = weeklyActs.reduce((s, r) => s + r.count, 0);
+
+  // 공통 스타일 문자열
+  const thStyle  = `style="background:${COLOR_HEADER};color:#fff;padding:10px 14px;text-align:center;font-size:13px;border:1px solid ${COLOR_HEADER};"`;
+  const tdStyle  = `style="padding:9px 14px;text-align:center;font-size:13px;border:1px solid ${COLOR_BORDER};color:#333;"`;
+  const tdLStyle = `style="padding:9px 14px;text-align:left;font-size:13px;border:1px solid ${COLOR_BORDER};color:#333;"`;
+
+  // ── 섹션 1: MR별 활동 테이블
+  let actRows = '';
+  if (weeklyActs.length === 0) {
+    actRows = `<tr><td colspan="3" ${tdStyle}>이번 주 활동 데이터가 없습니다.</td></tr>`;
+  } else {
+    weeklyActs.forEach((r, i) => {
+      const bg = i % 2 === 0 ? '#fff' : COLOR_BG_LIGHT;
+      actRows += `<tr style="background:${bg};">
+        <td ${tdStyle}>${r.mr}</td>
+        <td ${tdStyle}><strong>${r.count}</strong>건</td>
+        <td ${tdStyle}>${r.avgScore}점</td>
+      </tr>`;
+    });
+  }
+
+  // ── 섹션 2: 단계 변화
+  const riseColor = stageChanges.rise > 0 ? '#1B7A4E' : '#888';
+  const dropColor = stageChanges.drop > 0 ? '#C0392B' : '#888';
+
+  // ── 섹션 3: A등급 방문율
+  const visitRate  = gradeAVisit.total > 0
+    ? Math.round((gradeAVisit.visited / gradeAVisit.total) * 100)
+    : 0;
+  const barFill    = Math.min(visitRate, 100);
+  const rateColor  = visitRate >= 80 ? '#1B7A4E' : visitRate >= 50 ? '#E8901A' : '#C0392B';
+
+  // ── 섹션 4: 다음 주 방문 예정 테이블
+  let planRows = '';
+  if (nextWeekPlan.length === 0) {
+    planRows = `<tr><td colspan="4" ${tdStyle}>다음 주 예정 방문이 없습니다.</td></tr>`;
+  } else {
+    nextWeekPlan.forEach((r, i) => {
+      const bg = i % 2 === 0 ? '#fff' : COLOR_BG_LIGHT;
+      planRows += `<tr style="background:${bg};">
+        <td ${tdLStyle}>${r.biz}</td>
+        <td ${tdStyle}>${r.mr}</td>
+        <td ${tdStyle}>${r.stage}</td>
+        <td ${tdStyle}>${r.nextDate}</td>
+      </tr>`;
+    });
+  }
+
+  // ── 섹션 5: 지연 거래처 테이블
+  let delayRows = '';
+  if (delayed.length === 0) {
+    delayRows = `<tr><td colspan="3" ${tdStyle} style="color:#1B7A4E;font-weight:bold;">✅ 방문 지연 거래처 없음</td></tr>`;
+  } else {
+    delayed.forEach((r, i) => {
+      const bg       = i % 2 === 0 ? '#fff' : COLOR_BG_LIGHT;
+      const dayColor = r.diffDays >= 14 ? '#C0392B' : r.diffDays >= 7 ? '#E8901A' : '#333';
+      delayRows += `<tr style="background:${bg};">
+        <td ${tdLStyle}>${r.biz}</td>
+        <td ${tdStyle}>${r.mr}</td>
+        <td ${tdStyle} style="color:${dayColor};font-weight:bold;">${r.diffDays}일 지연</td>
+      </tr>`;
+    });
+  }
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>주간 영업 보고서</title>
+</head>
+<body style="margin:0;padding:0;background:#EAEFF6;font-family:'Apple SD Gothic Neo',Malgun Gothic,'맑은 고딕',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#EAEFF6;padding:30px 0;">
+  <tr><td align="center">
+  <table width="680" cellpadding="0" cellspacing="0" style="max-width:680px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 18px rgba(26,46,90,0.12);">
+
+    <!-- ===== HEADER ===== -->
+    <tr>
+      <td style="background:${COLOR_HEADER};padding:28px 32px;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td>
+              <div style="color:#A8BFDC;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">WEEKLY SALES REPORT</div>
+              <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:-0.5px;">[대웅제약] ${OFFICE_NAME}</div>
+              <div style="color:#7EA8D0;font-size:14px;margin-top:6px;">${today.getFullYear()}년 ${today.getMonth()+1}월 ${weekNum}주차 &nbsp;|&nbsp; ${mondayStr} ~ ${todayStr}</div>
+            </td>
+            <td align="right" style="vertical-align:top;">
+              <div style="background:${COLOR_ACCENT};color:#fff;font-size:13px;font-weight:700;padding:7px 16px;border-radius:20px;display:inline-block;">총 ${totalActs}건</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- ===== BODY ===== -->
+    <tr>
+      <td style="padding:28px 32px;">
+
+        <!-- 섹션 1: MR별 활동 -->
+        ${sectionTitle('① 이번 주 MR별 활동 현황', COLOR_SUBHEAD)}
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:28px;">
+          <tr>
+            <th ${thStyle} width="34%">MR 이름</th>
+            <th ${thStyle} width="33%">활동건수</th>
+            <th ${thStyle} width="33%">평균 활동점수</th>
+          </tr>
+          ${actRows}
+          <tr style="background:#EAF0F8;">
+            <td ${tdStyle} style="font-weight:700;color:${COLOR_HEADER};">합계</td>
+            <td ${tdStyle} style="font-weight:700;color:${COLOR_ACCENT};">${totalActs}건</td>
+            <td ${tdStyle}>—</td>
+          </tr>
+        </table>
+
+        <!-- 섹션 2: 단계 변화 -->
+        ${sectionTitle('② 단계 변화 현황', COLOR_SUBHEAD)}
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:28px;">
+          <tr>
+            <td width="50%" style="padding:20px 16px;text-align:center;background:#F0FBF5;border:1px solid #B7E4CC;border-radius:6px;margin-right:8px;">
+              <div style="font-size:13px;color:#555;margin-bottom:6px;">📈 단계 상승</div>
+              <div style="font-size:30px;font-weight:700;color:${riseColor};">${stageChanges.rise}</div>
+              <div style="font-size:12px;color:#888;">거래처</div>
+            </td>
+            <td width="4%"></td>
+            <td width="50%" style="padding:20px 16px;text-align:center;background:#FEF2F2;border:1px solid #F5C6C6;border-radius:6px;">
+              <div style="font-size:13px;color:#555;margin-bottom:6px;">📉 단계 하락</div>
+              <div style="font-size:30px;font-weight:700;color:${dropColor};">${stageChanges.drop}</div>
+              <div style="font-size:12px;color:#888;">거래처</div>
+            </td>
+          </tr>
+        </table>
+
+        <!-- 섹션 3: A등급 방문율 -->
+        ${sectionTitle('③ A등급 거래처 방문 현황', COLOR_SUBHEAD)}
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+          <tr>
+            <td style="padding:18px 20px;background:${COLOR_BG_LIGHT};border:1px solid ${COLOR_BORDER};border-radius:6px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:13px;color:#444;">방문 완료 / 전체 A등급</td>
+                  <td align="right" style="font-size:20px;font-weight:700;color:${rateColor};">${gradeAVisit.visited} / ${gradeAVisit.total} 곳 (${visitRate}%)</td>
+                </tr>
+              </table>
+              <!-- 프로그레스 바 -->
+              <div style="margin-top:12px;background:#D8E4F0;border-radius:10px;height:12px;overflow:hidden;">
+                <div style="width:${barFill}%;background:${rateColor};height:12px;border-radius:10px;transition:width 0.3s;"></div>
+              </div>
+            </td>
+          </tr>
+        </table>
+
+        <!-- 섹션 4: 다음 주 방문 예정 -->
+        ${sectionTitle('④ 다음 주 방문 예정 (상위 10개)', COLOR_SUBHEAD)}
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:28px;">
+          <tr>
+            <th ${thStyle} width="32%">거래처명</th>
+            <th ${thStyle} width="22%">MR</th>
+            <th ${thStyle} width="22%">현재단계</th>
+            <th ${thStyle} width="24%">예정일</th>
+          </tr>
+          ${planRows}
+        </table>
+
+        <!-- 섹션 5: 방문 지연 -->
+        ${sectionTitle('⑤ 방문 지연 거래처', COLOR_SUBHEAD)}
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:8px;">
+          <tr>
+            <th ${thStyle} width="40%">거래처명</th>
+            <th ${thStyle} width="28%">MR</th>
+            <th ${thStyle} width="32%">지연일수</th>
+          </tr>
+          ${delayRows}
+        </table>
+        ${delayed.length > 0 ? `<p style="font-size:11px;color:#C0392B;margin:4px 0 20px;">※ 14일 이상 지연 거래처는 즉시 방문 계획을 수립하세요.</p>` : ''}
+
+      </td>
+    </tr>
+
+    <!-- ===== FOOTER ===== -->
+    <tr>
+      <td style="background:#F4F7FB;border-top:1px solid ${COLOR_BORDER};padding:16px 32px;text-align:center;">
+        <p style="margin:0;font-size:11px;color:#999;">본 보고서는 Google Apps Script에 의해 자동 생성되었습니다. &nbsp;|&nbsp; ${OFFICE_NAME} &nbsp;|&nbsp; 발송일시: ${todayStr}</p>
+      </td>
+    </tr>
+
+  </table>
+  </td></tr>
+</table>
+</body>
+</html>`;
+}
+
+
+// ============================================================
+// 🛠️ 유틸리티 함수들
+// ============================================================
+
+/** 스프레드시트 시트를 2D 배열로 로드 (헤더 행 제거) */
+function loadSheet(ss, sheetName) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) throw new Error(`시트를 찾을 수 없습니다: ${sheetName}`);
+  const data = sheet.getDataRange().getValues();
+  return data.slice(1); // 헤더 제거
+}
+
+/** Date → "YYYY-MM-DD" 문자열 변환 */
+function formatDate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * 셀 값을 "YYYY-MM-DD" 문자열로 정규화
+ * (Date 객체 또는 문자열 모두 처리)
+ */
+function normalizeDate(val) {
+  if (!val || val === '') return '';
+  if (val instanceof Date) return formatDate(val);
+  const s = String(val).trim();
+  // "YYYY-MM-DD" 패턴이면 그대로
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // 다른 형식이면 Date로 파싱 시도
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return formatDate(d);
+  return '';
+}
+
+/** 주차 계산 (ISO 방식 기준) */
+function getWeekNumber(date) {
+  const d   = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+/** 섹션 제목 HTML */
+function sectionTitle(title, color) {
+  return `<div style="font-size:15px;font-weight:700;color:${color};
+    border-left:4px solid ${COLOR_ACCENT};padding-left:10px;margin:0 0 12px;">${title}</div>`;
+}
+
+
+function testSend() {
+  GmailApp.sendEmail('gkrwnd90@naver.com', '테스트', '테스트입니다');
+}

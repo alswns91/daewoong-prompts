@@ -1,0 +1,1062 @@
+/**
+ * ============================================================
+ * 📱 [대웅제약] 고객관리 웹앱 (CRM)
+ * ============================================================
+ *
+ * ▶ 기능:
+ *   - 고객 목록 + 검색/필터 (잠재등급, 현재단계)
+ *   - 고객 상세 모달 + 활동 이력 타임라인
+ *   - 활동 기록 입력 폼 (시트 자동 저장)
+ *   - D-Day 미방문 경보
+ *   - 구글 캘린더 자동 일정 등록
+ *   - 신규 고객 등록 폼 (고객마스터 시트 자동 추가)
+ *
+ * ▶ 사용 방법:
+ *   1. SPREADSHEET_ID 를 실제 스프레드시트 ID로 변경
+ *   2. 배포 → 새 배포 → 웹 앱 → 액세스: 모든 사용자
+ *   3. 배포 URL로 접근
+ * ============================================================
+ */
+
+// ============================================================
+// ⚙️ 설정값 (반드시 수정)
+// ============================================================
+const SPREADSHEET_ID = '';  // 스프레드시트 ID
+
+// ============================================================
+// 📌 시트명 상수
+// ============================================================
+const SHEET_ORG_CRM      = '조직도및MR';
+const SHEET_CUSTOMER_CRM = '고객마스터';
+const SHEET_ACTIVITY_CRM = '활동로그';
+
+// ============================================================
+// 🚀 doGet: 웹앱 진입점
+// ============================================================
+function doGet() {
+  return HtmlService.createHtmlOutput(buildAppHtml())
+    .setTitle('대웅제약 고객관리 앱')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ============================================================
+// 📊 getInitialData: 앱 초기 데이터 로드
+// ============================================================
+function getInitialData() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // ─ 조직도및MR: MR 목록
+  var orgSheet = ss.getSheetByName(SHEET_ORG_CRM);
+  var orgData  = orgSheet.getDataRange().getValues();
+  var mrList   = [];
+  for (var i = 1; i < orgData.length; i++) {
+    var row = orgData[i];
+    if (String(row[0]).trim() === '실무' && String(row[4]).trim()) {
+      mrList.push({
+        name:   String(row[4]).trim(),
+        office: String(row[2]).trim(),
+        title:  String(row[5]).trim()
+      });
+    }
+  }
+
+  // ─ 고객마스터
+  var custSheet = ss.getSheetByName(SHEET_CUSTOMER_CRM);
+  var custData  = custSheet.getDataRange().getValues();
+  var customers = [];
+  for (var j = 1; j < custData.length; j++) {
+    var c = custData[j];
+    if (!String(c[0]).trim()) continue;
+    customers.push({
+      id:           String(c[0]).trim(),
+      bizUnit:      String(c[1]).trim(),
+      office:       String(c[2]).trim(),
+      manager:      String(c[3]).trim(),
+      mr:           String(c[4]).trim(),
+      bizName:      String(c[5]).trim(),
+      name:         String(c[6]).trim(),
+      type:         String(c[7]).trim(),
+      specialty:    String(c[8]).trim(),
+      prevStage:    String(c[9]).trim(),
+      currStage:    String(c[10]).trim(),
+      potScore:     String(c[11]).trim(),
+      potGrade:     String(c[12]).trim(),
+      priority:     String(c[13]).trim(),
+      interest:     String(c[14]).trim(),
+      detailInt:    String(c[15]).trim(),
+      prefContact:  String(c[16]).trim(),
+      lastActDate:  normalizeDate_CRM(c[17]),
+      nextActDate:  normalizeDate_CRM(c[18]),
+      monthTarget:  String(c[19]).trim(),
+      monthActual:  String(c[20]).trim(),
+      lastReaction: String(c[21]).trim(),
+      keyProduct:   String(c[22]).trim(),
+      approachTip:  String(c[23]).trim(),
+      note:         String(c[24]).trim()
+    });
+  }
+
+  // ─ 활동로그
+  var actSheet = ss.getSheetByName(SHEET_ACTIVITY_CRM);
+  var actData  = actSheet.getDataRange().getValues();
+  var activities = [];
+  for (var k = 1; k < actData.length; k++) {
+    var a = actData[k];
+    if (!String(a[0]).trim()) continue;
+    activities.push({
+      actId:        String(a[0]).trim(),
+      actDate:      normalizeDate_CRM(a[1]),
+      week:         String(a[2]).trim(),
+      bizUnit:      String(a[3]).trim(),
+      office:       String(a[4]).trim(),
+      manager:      String(a[5]).trim(),
+      mr:           String(a[6]).trim(),
+      custId:       String(a[7]).trim(),
+      bizName:      String(a[8]).trim(),
+      custName:     String(a[9]).trim(),
+      specialty:    String(a[10]).trim(),
+      actType:      String(a[11]).trim(),
+      purpose:      String(a[12]).trim(),
+      keyProduct:   String(a[13]).trim(),
+      summary:      String(a[14]).trim(),
+      reaction:     String(a[15]).trim(),
+      stageChange:  String(a[16]).trim(),
+      followUp:     String(a[17]).trim(),
+      nextDate:     normalizeDate_CRM(a[18]),
+      duration:     String(a[19]).trim(),
+      score:        String(a[20]).trim(),
+      feedback:     String(a[21]).trim()
+    });
+  }
+
+  return JSON.stringify({ mrList: mrList, customers: customers, activities: activities });
+}
+
+// ============================================================
+// 💾 saveActivity: 활동 저장 + 고객마스터 업데이트 + 캘린더 등록
+// ============================================================
+function saveActivity(dataJson) {
+  try {
+    var d  = JSON.parse(dataJson);
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    // 1) 활동로그 시트에 새 행 추가
+    var actSheet = ss.getSheetByName(SHEET_ACTIVITY_CRM);
+    var now      = new Date();
+    var actId    = 'ACT' + now.getTime();
+    var weekNum  = getWeekNumber_CRM(new Date(d.actDate));
+
+    // 사무소/소장 정보를 고객마스터에서 조회
+    var custSheet = ss.getSheetByName(SHEET_CUSTOMER_CRM);
+    var custData  = custSheet.getDataRange().getValues();
+    var office = '', manager = '', bizUnit = '', bizName = '', specialty = '';
+    for (var i = 1; i < custData.length; i++) {
+      if (String(custData[i][0]).trim() === d.custId) {
+        bizUnit   = String(custData[i][1]).trim();
+        office    = String(custData[i][2]).trim();
+        manager   = String(custData[i][3]).trim();
+        bizName   = String(custData[i][5]).trim();
+        specialty = String(custData[i][8]).trim();
+        break;
+      }
+    }
+
+    var newRow = [
+      actId, d.actDate, weekNum, bizUnit, office, manager,
+      d.mr, d.custId, bizName, d.custName, specialty,
+      d.actType, d.purpose, d.keyProduct,
+      d.summary, d.reaction, d.stageChange, d.followUp,
+      d.nextDate, d.duration, '', ''
+    ];
+    actSheet.appendRow(newRow);
+
+    // 2) 고객마스터 업데이트 (최근활동일, 다음활동예정일, 이번달활동수)
+    for (var j = 1; j < custData.length; j++) {
+      if (String(custData[j][0]).trim() === d.custId) {
+        var targetRow = j + 1;
+        custSheet.getRange(targetRow, 18).setValue(d.actDate);   // 최근활동일 (R)
+        custSheet.getRange(targetRow, 19).setValue(d.nextDate);  // 다음활동예정일 (S)
+        var currentCount = parseInt(custData[j][20]) || 0;
+        custSheet.getRange(targetRow, 21).setValue(currentCount + 1); // 이번달활동수 (U)
+        break;
+      }
+    }
+
+    // 3) 구글 캘린더에 다음 방문 일정 등록
+    if (d.nextDate && d.nextDate !== '') {
+      var calTitle = '[대웅] ' + bizName + ' - ' + d.custName + ' 방문';
+      var calDesc  = 'MR: ' + d.mr + ' | 목적: ' + d.purpose + ' | 중점제품: ' + d.keyProduct;
+      var dateParts = d.nextDate.split('-');
+      var calDate = new Date(
+        parseInt(dateParts[0]),
+        parseInt(dateParts[1]) - 1,
+        parseInt(dateParts[2])
+      );
+      CalendarApp.getDefaultCalendar().createAllDayEvent(calTitle, calDate, { description: calDesc });
+    }
+
+    return JSON.stringify({ success: true, message: '활동이 저장되었습니다. 캘린더 일정도 등록됐습니다!' });
+  } catch (e) {
+    return JSON.stringify({ success: false, message: '오류: ' + e.message });
+  }
+}
+
+// ============================================================
+// 📅 addCalendarEvent: D-Day 경보에서 개별 캘린더 등록
+// ============================================================
+function addCalendarEvent(title, dateStr, description) {
+  try {
+    var dateParts = dateStr.split('-');
+    var calDate = new Date(
+      parseInt(dateParts[0]),
+      parseInt(dateParts[1]) - 1,
+      parseInt(dateParts[2])
+    );
+    CalendarApp.getDefaultCalendar().createAllDayEvent(title, calDate, { description: description });
+    return JSON.stringify({ success: true });
+  } catch (e) {
+    return JSON.stringify({ success: false, message: e.message });
+  }
+}
+
+// ============================================================
+// 👤 addNewCustomer: 신규 고객 고객마스터에 추가
+// ============================================================
+function addNewCustomer(dataJson) {
+  try {
+    var d  = JSON.parse(dataJson);
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    // 조직도및MR에서 선택된 MR의 사무소/소장/사업부 조회
+    var orgSheet = ss.getSheetByName(SHEET_ORG_CRM);
+    var orgData  = orgSheet.getDataRange().getValues();
+    var bizUnit = '', office = '', manager = '';
+    for (var i = 1; i < orgData.length; i++) {
+      if (String(orgData[i][4]).trim() === d.mr) {
+        bizUnit = String(orgData[i][1]).trim();
+        office  = String(orgData[i][2]).trim();
+        manager = String(orgData[i][3]).trim();
+        break;
+      }
+    }
+
+    // 고객ID 자동 생성
+    var custId = 'CUST' + new Date().getTime();
+
+    // 고객마스터 컬럼 순서대로 행 구성
+    // 고객ID(A), 사업부(B), 사무소(C), 소장(D), MR(E), 거래처명(F), 고객명(G), 고객유형(H),
+    // 전문과목(I), 전월단계(J), 현재단계(K), 잠재점수(L), 잠재등급(M), 우선순위(N),
+    // 관심분야(O), 세부관심(P), 선호접점(Q), 최근활동일(R), 다음활동예정일(S),
+    // 월목표활동수(T), 이번달활동수(U), 최근반응(V), 중점제품(W), 접근팁(X), 비고(Y)
+    var newRow = [
+      custId,           // A: 고객ID
+      bizUnit,          // B: 사업부
+      office,           // C: 사무소
+      manager,          // D: 소장
+      d.mr,             // E: MR
+      d.bizName,        // F: 거래처명
+      d.custName,       // G: 고객명
+      d.custType,       // H: 고객유형
+      d.specialty,      // I: 전문과목
+      d.currStage,      // J: 전월단계 (최초 등록 시 현재단계와 동일)
+      d.currStage,      // K: 현재단계
+      d.potScore,       // L: 잠재점수
+      d.potGrade,       // M: 잠재등급
+      d.priority,       // N: 우선순위
+      d.interest,       // O: 관심분야
+      d.detailInt,      // P: 세부관심
+      d.prefContact,    // Q: 선호접점
+      d.lastActDate,    // R: 최근활동일
+      d.nextActDate,    // S: 다음활동예정일
+      d.monthTarget,    // T: 월목표활동수
+      0,                // U: 이번달활동수
+      '',               // V: 최근반응
+      d.keyProduct,     // W: 중점제품
+      d.approachTip,    // X: 접근팁
+      d.note            // Y: 비고
+    ];
+
+    var custSheet = ss.getSheetByName(SHEET_CUSTOMER_CRM);
+    custSheet.appendRow(newRow);
+
+    return JSON.stringify({ success: true, custId: custId, message: '신규 고객이 등록되었습니다!' });
+  } catch (e) {
+    return JSON.stringify({ success: false, message: '오류: ' + e.message });
+  }
+}
+
+// ============================================================
+// 🛠️ 유틸리티
+// ============================================================
+function normalizeDate_CRM(val) {
+  if (!val || val === '') return '';
+  if (val instanceof Date) {
+    var y = val.getFullYear();
+    var m = String(val.getMonth() + 1).padStart(2, '0');
+    var d = String(val.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
+  }
+  var s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.getFullYear() + '-' +
+      String(parsed.getMonth() + 1).padStart(2, '0') + '-' +
+      String(parsed.getDate()).padStart(2, '0');
+  }
+  return s;
+}
+
+function getWeekNumber_CRM(date) {
+  var d   = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  var day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+// ============================================================
+// 🏗️ buildAppHtml: 전체 HTML 생성
+// ============================================================
+function buildAppHtml() {
+  var html = '';
+
+  html += '<!DOCTYPE html>';
+  html += '<html lang="ko">';
+  html += '<head>';
+  html += '<meta charset="UTF-8">';
+  html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">';
+  html += '<title>대웅제약 고객관리</title>';
+  html += '<style>';
+  html += '*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }';
+  html += 'body { font-family: "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif; background: #F4F7FB; color: #1e293b; }';
+  html += ':root { --navy: #1A2E5A; --orange: #E8620A; --green: #059669; --bg: #F4F7FB; --border: #D0DAE8; --white: #ffffff; }';
+
+  // 헤더
+  html += '.app-header { background: var(--navy); padding: 14px 20px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }';
+  html += '.app-header h1 { color: #fff; font-size: 18px; font-weight: 700; display: inline; }';
+  html += '.app-header .subtitle { color: #A8BFDC; font-size: 12px; margin-left: 10px; }';
+  html += '.mr-select-wrap { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }';
+  html += '.mr-select-wrap label { color: #A8BFDC; font-size: 13px; }';
+  html += '#mrSelector { padding: 6px 12px; border-radius: 8px; border: 1px solid #3A5A8A; background: #243d6a; color: #fff; font-size: 14px; cursor: pointer; }';
+
+  // 탭
+  html += '.tabs { display: flex; background: #fff; border-bottom: 2px solid var(--border); padding: 0 16px; position: sticky; top: 66px; z-index: 99; }';
+  html += '.tab-btn { padding: 12px 20px; font-size: 14px; font-weight: 600; color: #64748b; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.2s; }';
+  html += '.tab-btn.active { color: var(--navy); border-bottom-color: var(--orange); }';
+  html += '.tab-btn:hover { color: var(--navy); }';
+  html += '.tab-content { display: none; padding: 16px; max-width: 900px; margin: 0 auto; }';
+  html += '.tab-content.active { display: block; }';
+
+  // 필터 바
+  html += '.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; background: #fff; padding: 12px; border-radius: 12px; border: 1px solid var(--border); }';
+  html += '.filter-bar input, .filter-bar select { padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: #334155; background: #fff; }';
+  html += '.filter-bar input { flex: 1; min-width: 180px; }';
+  html += '.filter-bar input:focus, .filter-bar select:focus { outline: none; border-color: var(--navy); }';
+
+  // 고객 그리드 & 카드
+  html += '.customer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }';
+  html += '.cust-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; transition: all 0.2s; }';
+  html += '.cust-card:hover { border-color: var(--navy); box-shadow: 0 4px 14px rgba(26,46,90,0.12); transform: translateY(-2px); }';
+  html += '.cust-card .biz-name { font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }';
+  html += '.cust-card .cust-name { font-size: 13px; color: #64748b; margin-bottom: 8px; }';
+  html += '.cust-card .badges { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }';
+  html += '.badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }';
+  html += '.grade-A { background: #fee2e2; color: #b91c1c; }';
+  html += '.grade-B { background: #ffedd5; color: #c2410c; }';
+  html += '.grade-C { background: #dbeafe; color: #1d4ed8; }';
+  html += '.grade-D { background: #f1f5f9; color: #64748b; }';
+  html += '.stage-5단계 { background: #dcfce7; color: #15803d; }';
+  html += '.stage-4단계 { background: #d1fae5; color: #065f46; }';
+  html += '.stage-3단계 { background: #dbeafe; color: #1d4ed8; }';
+  html += '.stage-2단계 { background: #ffedd5; color: #c2410c; }';
+  html += '.stage-1단계 { background: #f1f5f9; color: #64748b; }';
+  html += '.dday-urgent { color: #dc2626; font-weight: 700; font-size: 12px; }';
+  html += '.dday-warn { color: #d97706; font-weight: 700; font-size: 12px; }';
+  html += '.dday-ok { color: #64748b; font-size: 12px; }';
+  html += '.cust-card .specialty { font-size: 11px; color: #94a3b8; }';
+
+  // 모달
+  html += '.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: flex-start; justify-content: center; padding: 20px; overflow-y: auto; }';
+  html += '.modal-overlay.open { display: flex; }';
+  html += '.modal { background: #fff; border-radius: 16px; width: 100%; max-width: 780px; overflow: hidden; margin: auto; }';
+  html += '.modal-header { background: var(--navy); padding: 18px 24px; display: flex; justify-content: space-between; align-items: center; }';
+  html += '.modal-header h2 { color: #fff; font-size: 17px; font-weight: 700; }';
+  html += '.modal-close { background: none; border: none; color: #fff; font-size: 24px; cursor: pointer; line-height: 1; padding: 0 4px; }';
+  html += '.modal-body { padding: 20px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }';
+  html += '@media(max-width: 600px) { .modal-body { grid-template-columns: 1fr; } }';
+  html += '.info-section h3 { font-size: 13px; font-weight: 700; color: var(--navy); border-left: 3px solid var(--orange); padding-left: 8px; margin-bottom: 10px; }';
+  html += '.info-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }';
+  html += '.info-row .label { color: #64748b; }';
+  html += '.info-row .val { color: #1e293b; font-weight: 500; text-align: right; max-width: 55%; }';
+  html += '.approach-tip { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px; font-size: 12px; color: #92400e; margin-top: 10px; }';
+
+  // 타임라인
+  html += '.timeline { max-height: 360px; overflow-y: auto; padding-right: 4px; }';
+  html += '.timeline-item { position: relative; padding: 10px 0 10px 20px; border-left: 2px solid var(--border); }';
+  html += '.timeline-item:last-child { border-left-color: transparent; }';
+  html += '.timeline-item::before { content: ""; position: absolute; left: -5px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--orange); }';
+  html += '.timeline-item .t-date { font-size: 11px; color: #94a3b8; margin-bottom: 3px; }';
+  html += '.timeline-item .t-type { display: inline-block; padding: 1px 7px; background: #e0e7ff; color: #4338ca; border-radius: 10px; font-size: 11px; font-weight: 600; margin-bottom: 5px; }';
+  html += '.timeline-item .t-summary { font-size: 13px; color: #334155; line-height: 1.5; }';
+  html += '.timeline-item .t-change { font-size: 11px; margin-top: 3px; }';
+  html += '.change-up { color: #15803d; } .change-down { color: #dc2626; } .change-keep { color: #64748b; }';
+  html += '.modal-footer { padding: 14px 24px; border-top: 1px solid var(--border); text-align: right; }';
+  html += '.btn-primary { padding: 10px 20px; background: var(--orange); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }';
+  html += '.btn-primary:hover { opacity: 0.85; }';
+  html += '.btn-secondary { padding: 10px 20px; background: #f1f5f9; color: #475569; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-right: 8px; }';
+
+  // 폼 스타일
+  html += '.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }';
+  html += '@media(max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }';
+  html += '.form-group { display: flex; flex-direction: column; gap: 5px; }';
+  html += '.form-group.full { grid-column: 1 / -1; }';
+  html += '.form-group label { font-size: 12px; font-weight: 600; color: #475569; }';
+  html += '.form-group input, .form-group select, .form-group textarea { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; color: #1e293b; background: #fff; font-family: inherit; }';
+  html += '.form-group textarea { resize: vertical; min-height: 80px; }';
+  html += '.form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 2px rgba(26,46,90,0.1); }';
+  html += '.form-section-title { font-size: 14px; font-weight: 700; color: var(--navy); border-left: 4px solid var(--orange); padding-left: 10px; margin: 20px 0 12px; }';
+  html += '.save-btn-wrap { margin-top: 20px; text-align: right; }';
+  html += '.cal-note { font-size: 12px; color: #059669; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }';
+
+  // D-Day 섹션
+  html += '.dday-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }';
+  html += '.dday-kpi { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: center; }';
+  html += '.dday-kpi .kpi-num { font-size: 28px; font-weight: 700; margin-bottom: 4px; }';
+  html += '.dday-kpi .kpi-label { font-size: 12px; color: #64748b; }';
+  html += '.dday-section-title { font-size: 14px; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin: 14px 0 8px; }';
+  html += '.dday-red { background: #fee2e2; color: #b91c1c; }';
+  html += '.dday-orange { background: #ffedd5; color: #c2410c; }';
+  html += '.dday-yellow { background: #fefce8; color: #92400e; }';
+  html += '.dday-card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 10px; flex-wrap: wrap; }';
+  html += '.dday-card .dc-info { flex: 1; min-width: 0; }';
+  html += '.dday-card .dc-biz { font-size: 14px; font-weight: 700; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }';
+  html += '.dday-card .dc-sub { font-size: 12px; color: #64748b; margin-top: 2px; }';
+  html += '.dday-card .dc-days { font-size: 22px; font-weight: 800; white-space: nowrap; }';
+  html += '.btn-cal { padding: 6px 12px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }';
+  html += '.btn-cal:hover { background: #dbeafe; }';
+
+  // 로딩 & 토스트
+  html += '.loading-wrap { text-align: center; padding: 60px 20px; color: #64748b; font-size: 15px; }';
+  html += '.spinner { width: 36px; height: 36px; border: 3px solid #e2e8f0; border-top-color: var(--navy); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }';
+  html += '@keyframes spin { to { transform: rotate(360deg); } }';
+  html += '.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 600; color: #fff; z-index: 9999; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }';
+  html += '.toast.success { background: #059669; }';
+  html += '.toast.error { background: #dc2626; }';
+  html += '.empty-msg { text-align: center; color: #94a3b8; padding: 40px 20px; font-size: 14px; }';
+  html += '.required-note { font-size: 12px; color: #94a3b8; margin-bottom: 14px; }';
+  html += '.new-cust-wrap { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 20px; }';
+
+  // ── 하단 네비게이션 (모바일 전용)
+  html += '.bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid var(--border); z-index: 150; padding: 4px 0 env(safe-area-inset-bottom, 4px); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }';
+  html += '.bottom-nav-inner { display: flex; justify-content: space-around; }';
+  html += '.bnav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 4px; border: none; background: none; cursor: pointer; color: #94a3b8; font-size: 10px; font-weight: 600; min-height: 52px; gap: 3px; transition: color 0.2s; -webkit-tap-highlight-color: transparent; }';
+  html += '.bnav-btn .bnav-icon { font-size: 20px; line-height: 1; }';
+  html += '.bnav-btn.active { color: var(--navy); }';
+  html += '.bnav-btn.active .bnav-icon { filter: drop-shadow(0 0 3px rgba(26,46,90,0.3)); }';
+
+  // ── 필터 토글 버튼 (모바일 전용)
+  html += '.filter-toggle { display: none; width: 100%; padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 13px; font-weight: 600; color: #475569; cursor: pointer; text-align: left; margin-bottom: 10px; -webkit-tap-highlight-color: transparent; }';
+  html += '.filter-toggle .ft-arrow { float: right; transition: transform 0.2s; }';
+  html += '.filter-toggle.open .ft-arrow { transform: rotate(180deg); }';
+  html += '.filter-bar.collapsed { display: none; }';
+
+  // ── 모바일 미디어 쿼리
+  html += '@media (max-width: 768px) {';
+  // 헤더 컴팩트
+  html += '.app-header { padding: 10px 14px; }';
+  html += '.app-header h1 { font-size: 16px; }';
+  html += '.app-header .subtitle { display: none; }';
+  html += '.mr-select-wrap { margin-top: 8px; gap: 6px; }';
+  html += '.mr-select-wrap label { font-size: 12px; }';
+  html += '#mrSelector { font-size: 13px; padding: 5px 10px; flex: 1; }';
+  // 탭 숨기고 하단 네비 표시
+  html += '.tabs { display: none; }';
+  html += '.bottom-nav { display: block; }';
+  // 탭 콘텐츠 하단 패딩 (하단 네비 높이)
+  html += '.tab-content { padding: 12px 12px 80px; }';
+  // 필터 토글 활성화
+  html += '.filter-toggle { display: block; }';
+  html += '.filter-bar { flex-direction: column; gap: 6px; padding: 10px; }';
+  html += '.filter-bar select, .filter-bar input { width: 100%; font-size: 16px; padding: 10px 12px; min-height: 44px; }';
+  // 고객 그리드 1컬럼
+  html += '.customer-grid { grid-template-columns: 1fr; gap: 10px; }';
+  html += '.cust-card { padding: 14px; border-radius: 12px; }';
+  html += '.cust-card .biz-name { font-size: 16px; }';
+  html += '.cust-card .cust-name { font-size: 14px; }';
+  // 모달 → 바텀 시트
+  html += '.modal-overlay { padding: 0; align-items: flex-end; }';
+  html += '.modal { border-radius: 20px 20px 0 0; max-width: 100%; max-height: 90vh; display: flex; flex-direction: column; margin: 0; animation: slideUp 0.3s ease; }';
+  html += '@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }';
+  html += '.modal-header { padding: 16px 20px; flex-shrink: 0; border-radius: 20px 20px 0 0; }';
+  html += '.modal-header h2 { font-size: 15px; }';
+  html += '.modal-body { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; padding: 16px; grid-template-columns: 1fr; }';
+  html += '.modal-footer { flex-shrink: 0; padding: 12px 16px; }';
+  html += '.btn-primary, .btn-secondary { min-height: 44px; font-size: 14px; padding: 10px 16px; }';
+  // 폼 최적화
+  html += '.form-grid { grid-template-columns: 1fr; gap: 12px; }';
+  html += '.form-section-title { margin: 16px 0 10px; }';
+  html += '.form-group input, .form-group select, .form-group textarea { font-size: 16px; padding: 11px 12px; min-height: 44px; }';
+  html += '.save-btn-wrap { text-align: center; }';
+  html += '.save-btn-wrap .btn-primary { width: 100%; justify-content: center; }';
+  // D-Day 최적화
+  html += '.dday-summary { grid-template-columns: repeat(3,1fr); gap: 8px; }';
+  html += '.dday-kpi { padding: 10px 8px; }';
+  html += '.dday-kpi .kpi-num { font-size: 24px; }';
+  html += '.dday-kpi .kpi-label { font-size: 11px; }';
+  html += '.dday-card { flex-wrap: nowrap; }';
+  html += '.dday-card .dc-days { font-size: 18px; }';
+  html += '.btn-cal { padding: 8px 10px; min-height: 36px; font-size: 11px; }';
+  // 토스트 위치 (하단 네비 위)
+  html += '.toast { bottom: 70px; font-size: 13px; padding: 10px 20px; max-width: 90%; text-align: center; }';
+  // 날짜 범위
+  html += '#dateRangeWrap { flex-direction: column; }';
+  html += '#dateRangeWrap input { width: 100%; min-height: 44px; font-size: 16px; }';
+  html += '}';
+
+  html += '</style>';
+  html += '</head>';
+  html += '<body>';
+
+  // ── 헤더
+  html += '<div class="app-header">';
+  html += '<h1>📱 대웅제약 고객관리</h1>';
+  html += '<span class="subtitle">Customer Relationship Management</span>';
+  html += '<div class="mr-select-wrap">';
+  html += '<label>👤 MR 선택:</label>';
+  html += '<select id="mrSelector" onchange="onMrChange()"><option value="">로딩 중...</option></select>';
+  html += '</div>';
+  html += '</div>';
+
+  // ── 탭
+  html += '<div class="tabs">';
+  html += '<button class="tab-btn active" onclick="switchTab(\'tab-list\', this)">📋 고객 목록</button>';
+  html += '<button class="tab-btn" onclick="switchTab(\'tab-form\', this)">📝 활동 기록</button>';
+  html += '<button class="tab-btn" onclick="switchTab(\'tab-dday\', this)">⚠️ D-Day 경보</button>';
+  html += '<button class="tab-btn" onclick="switchTab(\'tab-new\', this)">➕ 신규 고객</button>';
+  html += '</div>';
+
+  // ── 탭1: 고객 목록
+  html += '<div id="tab-list" class="tab-content active">';
+  html += '<button class="filter-toggle" id="filterToggleBtn" onclick="toggleFilter()">🔍 검색 / 필터 <span class="ft-arrow">▼</span></button>';
+  html += '<div class="filter-bar" id="filterBar">';
+  html += '<input type="text" id="searchInput" placeholder="거래처명, 고객명 검색..." oninput="renderCustomerList()">';
+  html += '<select id="gradeFilter" onchange="renderCustomerList()">';
+  html += '<option value="">등급 전체</option>';
+  html += '<option value="A">A등급</option><option value="B">B등급</option><option value="C">C등급</option><option value="D">D등급</option>';
+  html += '</select>';
+  html += '<select id="stageFilter" onchange="renderCustomerList()">';
+  html += '<option value="">단계 전체</option>';
+  html += '<option value="1단계">1단계</option><option value="2단계">2단계</option><option value="3단계">3단계</option><option value="4단계">4단계</option><option value="5단계">5단계</option>';
+  html += '</select>';
+  html += '<select id="dateQuickFilter" onchange="onDateQuickFilter()">';
+  html += '<option value="">📅 방문예정 전체</option>';
+  html += '<option value="today">오늘 방문</option>';
+  html += '<option value="week">이번 주</option>';
+  html += '<option value="month">이번 달</option>';
+  html += '<option value="delayed">지연 방문</option>';
+  html += '<option value="custom">직접 입력</option>';
+  html += '</select>';
+  html += '</div>';
+  html += '<div id="dateRangeWrap" style="display:none;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:10px;display:none;flex-wrap:wrap;gap:8px;align-items:center;">';
+  html += '<span style="font-size:13px;color:#475569;font-weight:600;">다음활동예정일 범위:</span>';
+  html += '<input type="date" id="dateFrom" onchange="renderCustomerList()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;">';
+  html += '<span style="color:#94a3b8;">~</span>';
+  html += '<input type="date" id="dateTo" onchange="renderCustomerList()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;">';
+  html += '<button onclick="clearDateFilter()" style="padding:5px 12px;background:#f1f5f9;border:1px solid var(--border);border-radius:8px;font-size:12px;cursor:pointer;color:#475569;">초기화</button>';
+  html += '</div>';
+  html += '<div id="customerGrid" class="customer-grid"><div class="loading-wrap"><div class="spinner"></div>데이터 로딩 중...</div></div>';
+  html += '</div>';
+
+  // ── 탭2: 활동 기록
+  html += '<div id="tab-form" class="tab-content">';
+  html += '<div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:20px;">';
+  html += '<div class="form-section-title">기본 정보</div>';
+  html += '<div class="form-grid">';
+  html += '<div class="form-group"><label>활동 일자 *</label><input type="date" id="f_actDate"></div>';
+  html += '<div class="form-group"><label>MR *</label><select id="f_mr" onchange="updateFormCustomers()"><option value="">MR 선택</option></select></div>';
+  html += '<div class="form-group"><label>고객 *</label><select id="f_cust"><option value="">고객 선택</option></select></div>';
+  html += '<div class="form-group"><label>활동 유형 *</label>';
+  html += '<select id="f_actType"><option value="">선택</option>';
+  html += '<option value="직접방문">직접방문</option><option value="전화">전화</option><option value="이메일">이메일</option><option value="화상">화상</option></select></div>';
+  html += '</div>';
+  html += '<div class="form-section-title">활동 내용</div>';
+  html += '<div class="form-grid">';
+  html += '<div class="form-group"><label>방문 목적</label><input type="text" id="f_purpose" placeholder="예) 신제품 소개"></div>';
+  html += '<div class="form-group"><label>중점 제품</label><input type="text" id="f_keyProduct" placeholder="예) 올메텍, 베시케어"></div>';
+  html += '<div class="form-group full"><label>결과 요약</label><textarea id="f_summary" placeholder="방문 결과를 간략히 적어주세요..."></textarea></div>';
+  html += '<div class="form-group"><label>고객 반응</label>';
+  html += '<select id="f_reaction"><option value="">선택</option>';
+  html += '<option value="매우긍정">매우긍정</option><option value="긍정">긍정</option><option value="중립">중립</option><option value="부정">부정</option><option value="매우부정">매우부정</option></select></div>';
+  html += '<div class="form-group"><label>단계 변화</label>';
+  html += '<select id="f_stageChange"><option value="">선택</option>';
+  html += '<option value="상승">상승</option><option value="유지">유지</option><option value="하락">하락</option></select></div>';
+  html += '<div class="form-group full"><label>후속 조치</label><input type="text" id="f_followUp" placeholder="예) 다음 주 샘플 전달 예정"></div>';
+  html += '</div>';
+  html += '<div class="form-section-title">다음 방문 계획</div>';
+  html += '<div class="form-grid">';
+  html += '<div class="form-group"><label>다음 활동 예정일</label><input type="date" id="f_nextDate"></div>';
+  html += '<div class="form-group"><label>소요 시간 (분)</label><input type="number" id="f_duration" placeholder="예) 30"></div>';
+  html += '</div>';
+  html += '<div class="cal-note">📅 다음 활동 예정일을 입력하면 구글 캘린더에 자동으로 방문 일정이 등록됩니다.</div>';
+  html += '<div class="save-btn-wrap"><button class="btn-primary" onclick="submitActivity()">💾 활동 저장하기</button></div>';
+  html += '</div>';
+  html += '</div>';
+
+  // ── 탭3: D-Day 경보
+  html += '<div id="tab-dday" class="tab-content">';
+  html += '<div class="dday-summary">';
+  html += '<div class="dday-kpi"><div class="kpi-num" id="kpiToday" style="color:#dc2626;">-</div><div class="kpi-label">오늘 방문 예정</div></div>';
+  html += '<div class="dday-kpi"><div class="kpi-num" id="kpiWeek" style="color:#d97706;">-</div><div class="kpi-label">이번 주 방문 예정</div></div>';
+  html += '<div class="dday-kpi"><div class="kpi-num" id="kpiDelayed" style="color:#64748b;">-</div><div class="kpi-label">방문 지연</div></div>';
+  html += '</div>';
+  html += '<div id="ddayList"><div class="loading-wrap"><div class="spinner"></div></div></div>';
+  html += '</div>';
+
+  // ── 탭4: 신규 고객 등록
+  html += '<div id="tab-new" class="tab-content">';
+  html += '<div class="new-cust-wrap">';
+  html += '<p class="required-note">* 표시 항목은 필수입력입니다.</p>';
+  html += '<div class="form-section-title">기본 정보</div>';
+  html += '<div class="form-grid">';
+  html += '<div class="form-group"><label>담당 MR *</label><select id="n_mr"><option value="">MR 선택</option></select></div>';
+  html += '<div class="form-group"><label>거래처명 *</label><input type="text" id="n_bizName" placeholder="예) 삼성서울병원"></div>';
+  html += '<div class="form-group"><label>고객명 *</label><input type="text" id="n_custName" placeholder="예) 홍길동"></div>';
+  html += '<div class="form-group"><label>고객 유형</label>';
+  html += '<select id="n_custType"><option value="">선택</option>';
+  html += '<option value="병원장">병원장</option><option value="교수">교수</option><option value="전문의">전문의</option><option value="일반의">일반의</option><option value="약사">약사</option></select></div>';
+  html += '<div class="form-group"><label>전문 과목</label><input type="text" id="n_specialty" placeholder="예) 내과, 피부과"></div>';
+  html += '<div class="form-group"><label>현재 단계</label>';
+  html += '<select id="n_currStage"><option value="1단계">1단계</option><option value="2단계">2단계</option><option value="3단계">3단계</option><option value="4단계">4단계</option><option value="5단계">5단계</option></select></div>';
+  html += '<div class="form-group"><label>잠재 등급</label>';
+  html += '<select id="n_potGrade"><option value="C">C</option><option value="A">A</option><option value="B">B</option><option value="D">D</option></select></div>';
+  html += '<div class="form-group"><label>잠재 점수</label><input type="number" id="n_potScore" placeholder="예) 75" min="0" max="100"></div>';
+  html += '<div class="form-group"><label>우선 순위</label>';
+  html += '<select id="n_priority"><option value="중간">중간</option><option value="높음">높음</option><option value="낮음">낮음</option></select></div>';
+  html += '</div>';
+  html += '<div class="form-section-title">고객 특성</div>';
+  html += '<div class="form-grid">';
+  html += '<div class="form-group"><label>관심 분야</label><input type="text" id="n_interest" placeholder="예) 고혈압, 당뇨"></div>';
+  html += '<div class="form-group"><label>세부 관심</label><input type="text" id="n_detailInt" placeholder="예) 신규 약제 정보"></div>';
+  html += '<div class="form-group"><label>선호 접점</label>';
+  html += '<select id="n_prefContact"><option value="">선택</option>';
+  html += '<option value="직접방문">직접방문</option><option value="전화">전화</option><option value="이메일">이메일</option><option value="화상">화상</option></select></div>';
+  html += '<div class="form-group"><label>중점 제품</label><input type="text" id="n_keyProduct" placeholder="예) 올메텍, 베시케어"></div>';
+  html += '<div class="form-group full"><label>접근 팁</label><textarea id="n_approachTip" placeholder="이 고객에게 효과적인 접근 방법을 적어주세요..."></textarea></div>';
+  html += '</div>';
+  html += '<div class="form-section-title">활동 계획</div>';
+  html += '<div class="form-grid">';
+  html += '<div class="form-group"><label>월 목표 활동 수</label><input type="number" id="n_monthTarget" value="2" min="1"></div>';
+  html += '<div class="form-group"><label>최근 활동일</label><input type="date" id="n_lastActDate"></div>';
+  html += '<div class="form-group"><label>다음 활동 예정일</label><input type="date" id="n_nextDate"></div>';
+  html += '<div class="form-group full"><label>비고</label><input type="text" id="n_note" placeholder="기타 참고사항"></div>';
+  html += '</div>';
+  html += '<div class="save-btn-wrap"><button class="btn-primary" style="background:var(--navy);" onclick="submitNewCustomer()">👤 신규 고객 등록</button></div>';
+  html += '</div>';
+  html += '</div>';
+
+  // ── 하단 네비게이션 (모바일 전용)
+  html += '<nav class="bottom-nav">';
+  html += '<div class="bottom-nav-inner">';
+  html += '<button class="bnav-btn active" id="bnav-list" onclick="switchTabMobile(\'tab-list\', this)"><span class="bnav-icon">📋</span>고객목록</button>';
+  html += '<button class="bnav-btn" id="bnav-form" onclick="switchTabMobile(\'tab-form\', this)"><span class="bnav-icon">📝</span>활동기록</button>';
+  html += '<button class="bnav-btn" id="bnav-dday" onclick="switchTabMobile(\'tab-dday\', this)"><span class="bnav-icon">⚠️</span>D-Day</button>';
+  html += '<button class="bnav-btn" id="bnav-new" onclick="switchTabMobile(\'tab-new\', this)"><span class="bnav-icon">➕</span>신규등록</button>';
+  html += '</div></nav>';
+
+  // ── 고객 상세 모달
+  html += '<div id="custModal" class="modal-overlay" onclick="closeModal(event)">';
+  html += '<div class="modal">';
+  html += '<div class="modal-header"><h2 id="modalTitle">고객 상세</h2><button class="modal-close" onclick="document.getElementById(\'custModal\').classList.remove(\'open\')">×</button></div>';
+  html += '<div class="modal-body">';
+  html += '<div class="info-section"><h3>고객 기본 정보</h3><div id="modalInfo"></div><div id="modalTip"></div></div>';
+  html += '<div class="info-section"><h3>활동 이력</h3><div id="modalTimeline" class="timeline"></div></div>';
+  html += '</div>';
+  html += '<div class="modal-footer"><button class="btn-secondary" onclick="document.getElementById(\'custModal\').classList.remove(\'open\')">닫기</button><button class="btn-primary" onclick="goToFormFromModal()">📝 활동 기록하기</button></div>';
+  html += '</div>';
+  html += '</div>';
+
+  // ── 토스트
+  html += '<div id="toast" class="toast"></div>';
+
+  // ── JavaScript
+  html += '<script>';
+  html += 'var appData = null;';
+  html += 'var selectedModalCustId = null;';
+  html += '';
+  html += 'window.onload = function() {';
+  html += '  var today = new Date();';
+  html += '  var ymd = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");';
+  html += '  document.getElementById("f_actDate").value = ymd;';
+  html += '  if (window.innerWidth <= 768) {';
+  html += '    var fb = document.getElementById("filterBar");';
+  html += '    if (fb) fb.classList.add("collapsed");';
+  html += '  }';
+  html += '  google.script.run.withSuccessHandler(function(json) {';
+  html += '    appData = JSON.parse(json);';
+  html += '    initMrSelector();';
+  html += '    renderCustomerList();';
+  html += '    renderDDay();';
+  html += '    initForm();';
+  html += '  }).withFailureHandler(function(e) {';
+  html += '    document.getElementById("customerGrid").innerHTML = "<div class=\'empty-msg\'>데이터 로드 실패: " + e.message + "</div>";';
+  html += '  }).getInitialData();';
+  html += '};';
+  html += '';
+  html += 'function initMrSelector() {';
+  html += '  var sel = document.getElementById("mrSelector");';
+  html += '  sel.innerHTML = "<option value=\'\'>전체 보기</option>";';
+  html += '  appData.mrList.forEach(function(mr) {';
+  html += '    sel.innerHTML += "<option value=\'" + mr.name + "\'>" + mr.name + " (" + mr.office + ")</option>";';
+  html += '  });';
+  html += '}';
+  html += '';
+  html += 'function onMrChange() { renderCustomerList(); renderDDay(); }';
+  html += '';
+  html += 'function getFilteredCustomers() {';
+  html += '  var mrVal       = document.getElementById("mrSelector").value;';
+  html += '  var search      = (document.getElementById("searchInput").value || "").toLowerCase();';
+  html += '  var grade       = document.getElementById("gradeFilter").value;';
+  html += '  var stage       = document.getElementById("stageFilter").value;';
+  html += '  var quickDate   = document.getElementById("dateQuickFilter").value;';
+  html += '  var dateFrom    = document.getElementById("dateFrom") ? document.getElementById("dateFrom").value : "";';
+  html += '  var dateTo      = document.getElementById("dateTo") ? document.getElementById("dateTo").value : "";';
+  html += '  var today = new Date(); today.setHours(0,0,0,0);';
+  html += '  var todayStr = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");';
+  html += '  var dow = today.getDay(); var diffFri = dow === 0 ? 5 : 5 - dow;';
+  html += '  var fri = new Date(today); fri.setDate(today.getDate() + diffFri);';
+  html += '  var friStr = fri.getFullYear() + "-" + String(fri.getMonth()+1).padStart(2,"0") + "-" + String(fri.getDate()).padStart(2,"0");';
+  html += '  var lastDay = new Date(today.getFullYear(), today.getMonth()+1, 0);';
+  html += '  var monthEndStr = lastDay.getFullYear() + "-" + String(lastDay.getMonth()+1).padStart(2,"0") + "-" + String(lastDay.getDate()).padStart(2,"0");';
+  html += '  return appData.customers.filter(function(c) {';
+  html += '    if (mrVal && c.mr !== mrVal) return false;';
+  html += '    if (search && c.bizName.toLowerCase().indexOf(search) < 0 && c.name.toLowerCase().indexOf(search) < 0) return false;';
+  html += '    if (grade && c.potGrade !== grade) return false;';
+  html += '    if (stage && c.currStage !== stage) return false;';
+  html += '    var nd = c.nextActDate || "";';
+  html += '    if (quickDate === "today")   { if (nd !== todayStr) return false; }';
+  html += '    else if (quickDate === "week")    { if (!nd || nd < todayStr || nd > friStr) return false; }';
+  html += '    else if (quickDate === "month")   { if (!nd || nd < todayStr || nd > monthEndStr) return false; }';
+  html += '    else if (quickDate === "delayed") { if (!nd || nd >= todayStr) return false; }';
+  html += '    else if (quickDate === "custom")  {';
+  html += '      if (dateFrom && nd < dateFrom) return false;';
+  html += '      if (dateTo   && nd > dateTo)   return false;';
+  html += '    }';
+  html += '    return true;';
+  html += '  });';
+  html += '}';
+  html += '';
+  html += 'function onDateQuickFilter() {';
+  html += '  var v = document.getElementById("dateQuickFilter").value;';
+  html += '  var wrap = document.getElementById("dateRangeWrap");';
+  html += '  wrap.style.display = (v === "custom") ? "flex" : "none";';
+  html += '  renderCustomerList();';
+  html += '}';
+  html += '';
+  html += 'function clearDateFilter() {';
+  html += '  document.getElementById("dateQuickFilter").selectedIndex = 0;';
+  html += '  document.getElementById("dateFrom").value = "";';
+  html += '  document.getElementById("dateTo").value = "";';
+  html += '  document.getElementById("dateRangeWrap").style.display = "none";';
+  html += '  renderCustomerList();';
+  html += '}';
+  html += '';
+  html += 'function getDDay(nextDateStr) {';
+  html += '  if (!nextDateStr) return null;';
+  html += '  var today = new Date(); today.setHours(0,0,0,0);';
+  html += '  var nd = new Date(nextDateStr); nd.setHours(0,0,0,0);';
+  html += '  return Math.floor((nd - today) / 86400000);';
+  html += '}';
+  html += '';
+  html += 'function ddayHtml(d) {';
+  html += '  if (d === null) return "<span class=\'dday-ok\'>-</span>";';
+  html += '  if (d < 0) return "<span class=\'dday-urgent\'>D+" + Math.abs(d) + " 지연</span>";';
+  html += '  if (d === 0) return "<span class=\'dday-urgent\'>D-Day!</span>";';
+  html += '  if (d <= 3) return "<span class=\'dday-urgent\'>D-" + d + "</span>";';
+  html += '  if (d <= 7) return "<span class=\'dday-warn\'>D-" + d + "</span>";';
+  html += '  return "<span class=\'dday-ok\'>D-" + d + "</span>";';
+  html += '}';
+  html += '';
+  html += 'function gradeBadge(g) { return "<span class=\'badge grade-" + (g||"D") + "\'>" + (g||"?") + "등급</span>"; }';
+  html += 'function stageBadge(s) { return "<span class=\'badge stage-" + (s||"인지") + "\'>" + (s||"-") + "</span>"; }';
+  html += '';
+  html += 'function renderCustomerList() {';
+  html += '  if (!appData) return;';
+  html += '  var list = getFilteredCustomers();';
+  html += '  var grid = document.getElementById("customerGrid");';
+  html += '  if (!list.length) { grid.innerHTML = "<div class=\'empty-msg\'>조건에 맞는 고객이 없습니다.</div>"; return; }';
+  html += '  var html = "";';
+  html += '  list.forEach(function(c) {';
+  html += '    var d = getDDay(c.nextActDate);';
+  html += '    html += "<div class=\'cust-card\' onclick=\'openModal(\\"" + c.id + "\\")\'>"; ';
+  html += '    html += "<div class=\'biz-name\'>" + c.bizName + "</div>";';
+  html += '    html += "<div class=\'cust-name\'>" + c.name + " · <span class=\'specialty\'>" + c.specialty + "</span></div>";';
+  html += '    html += "<div class=\'badges\'>" + gradeBadge(c.potGrade) + stageBadge(c.currStage) + "</div>";';
+  html += '    html += "<div>" + ddayHtml(d) + (c.nextActDate ? " <span style=\'font-size:11px;color:#94a3b8;\'>(" + c.nextActDate + ")</span>" : "") + "</div>";';
+  html += '    html += "</div>";';
+  html += '  });';
+  html += '  grid.innerHTML = html;';
+  html += '}';
+  html += '';
+  html += 'function openModal(custId) {';
+  html += '  selectedModalCustId = custId;';
+  html += '  var c = appData.customers.find(function(x) { return x.id === custId; });';
+  html += '  if (!c) return;';
+  html += '  document.getElementById("modalTitle").textContent = c.bizName + " · " + c.name;';
+  html += '  var info = "";';
+  html += '  var rows = [["담당 MR", c.mr], ["전문과목", c.specialty], ["고객유형", c.type],';
+  html += '    ["현재단계", c.currStage], ["잠재등급", c.potGrade], ["잠재점수", c.potScore],';
+  html += '    ["관심분야", c.interest], ["세부관심", c.detailInt], ["선호접점", c.prefContact],';
+  html += '    ["중점제품", c.keyProduct], ["최근활동일", c.lastActDate], ["다음예정일", c.nextActDate]];';
+  html += '  rows.forEach(function(r) { info += "<div class=\'info-row\'><span class=\'label\'>" + r[0] + "</span><span class=\'val\'>" + (r[1]||"-") + "</span></div>"; });';
+  html += '  document.getElementById("modalInfo").innerHTML = info;';
+  html += '  var tip = c.approachTip ? "<div class=\'approach-tip\'>💡 접근 팁: " + c.approachTip + "</div>" : "";';
+  html += '  document.getElementById("modalTip").innerHTML = tip;';
+  html += '  var acts = appData.activities.filter(function(a) { return a.custId === custId; })';
+  html += '    .sort(function(a, b) { return b.actDate.localeCompare(a.actDate); });';
+  html += '  var tl = "";';
+  html += '  if (!acts.length) { tl = "<div class=\'empty-msg\' style=\'padding:20px\'>활동 이력 없음</div>"; }';
+  html += '  else { acts.forEach(function(a) {';
+  html += '    var changeClass = a.stageChange === "상승" ? "change-up" : a.stageChange === "하락" ? "change-down" : "change-keep";';
+  html += '    tl += "<div class=\'timeline-item\'>";';
+  html += '    tl += "<div class=\'t-date\'>" + a.actDate + "</div>";';
+  html += '    tl += "<span class=\'t-type\'>" + (a.actType||"방문") + "</span>";';
+  html += '    tl += "<div class=\'t-summary\'>" + (a.summary||"-") + "</div>";';
+  html += '    if (a.stageChange) tl += "<div class=\'t-change " + changeClass + "\'>단계변화: " + a.stageChange + "</div>";';
+  html += '    tl += "</div>";';
+  html += '  }); }';
+  html += '  document.getElementById("modalTimeline").innerHTML = tl;';
+  html += '  document.getElementById("custModal").classList.add("open");';
+  html += '}';
+  html += '';
+  html += 'function closeModal(e) { if (e.target.id === "custModal") document.getElementById("custModal").classList.remove("open"); }';
+  html += '';
+  html += 'function goToFormFromModal() {';
+  html += '  document.getElementById("custModal").classList.remove("open");';
+  html += '  var c = appData.customers.find(function(x) { return x.id === selectedModalCustId; });';
+  html += '  if (c) {';
+  html += '    document.getElementById("f_mr").value = c.mr;';
+  html += '    updateFormCustomers();';
+  html += '    setTimeout(function() { document.getElementById("f_cust").value = c.id; }, 100);';
+  html += '  }';
+  html += '  document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });';
+  html += '  document.querySelectorAll(".tab-content").forEach(function(t) { t.classList.remove("active"); });';
+  html += '  document.getElementById("tab-form").classList.add("active");';
+  html += '  document.querySelectorAll(".tab-btn")[1].classList.add("active");';
+  html += '}';
+  html += '';
+  html += 'function switchTab(id, btn) {';
+  html += '  document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });';
+  html += '  document.querySelectorAll(".tab-content").forEach(function(t) { t.classList.remove("active"); });';
+  html += '  document.getElementById(id).classList.add("active");';
+  html += '  btn.classList.add("active");';
+  html += '  var tabMap = { "tab-list": "bnav-list", "tab-form": "bnav-form", "tab-dday": "bnav-dday", "tab-new": "bnav-new" };';
+  html += '  document.querySelectorAll(".bnav-btn").forEach(function(b) { b.classList.remove("active"); });';
+  html += '  if (tabMap[id]) { var nb = document.getElementById(tabMap[id]); if (nb) nb.classList.add("active"); }';
+  html += '}';
+  html += '';
+  html += 'function switchTabMobile(id, btn) {';
+  html += '  document.querySelectorAll(".tab-content").forEach(function(t) { t.classList.remove("active"); });';
+  html += '  document.getElementById(id).classList.add("active");';
+  html += '  document.querySelectorAll(".bnav-btn").forEach(function(b) { b.classList.remove("active"); });';
+  html += '  btn.classList.add("active");';
+  html += '  document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });';
+  html += '  var tabBtnMap = { "tab-list": 0, "tab-form": 1, "tab-dday": 2, "tab-new": 3 };';
+  html += '  var idx = tabBtnMap[id]; var btns = document.querySelectorAll(".tab-btn");';
+  html += '  if (idx !== undefined && btns[idx]) btns[idx].classList.add("active");';
+  html += '  window.scrollTo(0, 0);';
+  html += '}';
+  html += '';
+  html += 'function toggleFilter() {';
+  html += '  var bar = document.getElementById("filterBar");';
+  html += '  var btn = document.getElementById("filterToggleBtn");';
+  html += '  var isCollapsed = bar.classList.contains("collapsed");';
+  html += '  if (isCollapsed) { bar.classList.remove("collapsed"); btn.classList.add("open"); }';
+  html += '  else { bar.classList.add("collapsed"); btn.classList.remove("open"); }';
+  html += '}';
+  html += '';
+  html += 'function initForm() {';
+  html += '  var sel = document.getElementById("f_mr");';
+  html += '  sel.innerHTML = "<option value=\'\'>MR 선택</option>";';
+  html += '  appData.mrList.forEach(function(mr) {';
+  html += '    sel.innerHTML += "<option value=\'" + mr.name + "\'>" + mr.name + "</option>";';
+  html += '  });';
+  html += '  var nSel = document.getElementById("n_mr");';
+  html += '  nSel.innerHTML = "<option value=\'\'>MR 선택</option>";';
+  html += '  appData.mrList.forEach(function(mr) {';
+  html += '    nSel.innerHTML += "<option value=\'" + mr.name + "\'>" + mr.name + " (" + mr.office + ")</option>";';
+  html += '  });';
+  html += '  var mrVal = document.getElementById("mrSelector").value;';
+  html += '  if (mrVal) { sel.value = mrVal; nSel.value = mrVal; updateFormCustomers(); }';
+  html += '}';
+  html += '';
+  html += 'function submitNewCustomer() {';
+  html += '  if (!document.getElementById("n_mr").value) { showToast("담당 MR을 선택해주세요.", "error"); return; }';
+  html += '  if (!document.getElementById("n_bizName").value.trim()) { showToast("거래처명을 입력해주세요.", "error"); return; }';
+  html += '  if (!document.getElementById("n_custName").value.trim()) { showToast("고객명을 입력해주세요.", "error"); return; }';
+  html += '  var data = {';
+  html += '    mr:          document.getElementById("n_mr").value,';
+  html += '    bizName:     document.getElementById("n_bizName").value.trim(),';
+  html += '    custName:    document.getElementById("n_custName").value.trim(),';
+  html += '    custType:    document.getElementById("n_custType").value,';
+  html += '    specialty:   document.getElementById("n_specialty").value.trim(),';
+  html += '    currStage:   document.getElementById("n_currStage").value,';
+  html += '    potGrade:    document.getElementById("n_potGrade").value,';
+  html += '    potScore:    document.getElementById("n_potScore").value,';
+  html += '    priority:    document.getElementById("n_priority").value,';
+  html += '    interest:    document.getElementById("n_interest").value.trim(),';
+  html += '    detailInt:   document.getElementById("n_detailInt").value.trim(),';
+  html += '    prefContact: document.getElementById("n_prefContact").value,';
+  html += '    keyProduct:  document.getElementById("n_keyProduct").value.trim(),';
+  html += '    approachTip: document.getElementById("n_approachTip").value.trim(),';
+  html += '    monthTarget:  document.getElementById("n_monthTarget").value || "2",';
+  html += '    lastActDate:  document.getElementById("n_lastActDate").value,';
+  html += '    nextActDate:  document.getElementById("n_nextDate").value,';
+  html += '    note:         document.getElementById("n_note").value.trim()';
+  html += '  };';
+  html += '  var btn = document.querySelector("#tab-new .btn-primary");';
+  html += '  btn.disabled = true; btn.textContent = "등록 중...";';
+  html += '  google.script.run';
+  html += '    .withSuccessHandler(function(json) {';
+  html += '      var res = JSON.parse(json);';
+  html += '      btn.disabled = false; btn.textContent = "👤 신규 고객 등록";';
+  html += '      if (res.success) {';
+  html += '        showToast(res.message, "success");';
+  html += '        document.querySelectorAll("#tab-new input, #tab-new select, #tab-new textarea").forEach(function(el) {';
+  html += '          if (el.type === "number") el.value = "2"; else if (el.tagName === "SELECT") el.selectedIndex = 0; else el.value = "";';
+  html += '        });';
+  html += '        google.script.run.withSuccessHandler(function(json2) {';
+  html += '          appData = JSON.parse(json2);';
+  html += '          renderCustomerList(); renderDDay(); initForm();';
+  html += '          switchTab("tab-list", document.querySelectorAll(".tab-btn")[0]);';
+  html += '        }).getInitialData();';
+  html += '      } else { showToast(res.message, "error"); }';
+  html += '    })';
+  html += '    .withFailureHandler(function(e) {';
+  html += '      btn.disabled = false; btn.textContent = "👤 신규 고객 등록";';
+  html += '      showToast("등록 실패: " + e.message, "error");';
+  html += '    })';
+  html += '    .addNewCustomer(JSON.stringify(data));';
+  html += '}';
+  html += '';
+  html += 'function updateFormCustomers() {';
+  html += '  var mrVal = document.getElementById("f_mr").value;';
+  html += '  var custSel = document.getElementById("f_cust");';
+  html += '  custSel.innerHTML = "<option value=\'\'>고객 선택</option>";';
+  html += '  if (!appData || !mrVal) return;';
+  html += '  appData.customers.filter(function(c) { return c.mr === mrVal; }).forEach(function(c) {';
+  html += '    custSel.innerHTML += "<option value=\'" + c.id + "\'>" + c.bizName + " - " + c.name + "</option>";';
+  html += '  });';
+  html += '}';
+  html += '';
+  html += 'function submitActivity() {';
+  html += '  var c = appData.customers.find(function(x) { return x.id === document.getElementById("f_cust").value; });';
+  html += '  if (!document.getElementById("f_actDate").value) { showToast("활동 일자를 입력해주세요.", "error"); return; }';
+  html += '  if (!document.getElementById("f_mr").value) { showToast("MR을 선택해주세요.", "error"); return; }';
+  html += '  if (!document.getElementById("f_cust").value) { showToast("고객을 선택해주세요.", "error"); return; }';
+  html += '  if (!document.getElementById("f_actType").value) { showToast("활동 유형을 선택해주세요.", "error"); return; }';
+  html += '  var data = {';
+  html += '    actDate:     document.getElementById("f_actDate").value,';
+  html += '    mr:          document.getElementById("f_mr").value,';
+  html += '    custId:      document.getElementById("f_cust").value,';
+  html += '    custName:    c ? c.name : "",';
+  html += '    actType:     document.getElementById("f_actType").value,';
+  html += '    purpose:     document.getElementById("f_purpose").value,';
+  html += '    keyProduct:  document.getElementById("f_keyProduct").value,';
+  html += '    summary:     document.getElementById("f_summary").value,';
+  html += '    reaction:    document.getElementById("f_reaction").value,';
+  html += '    stageChange: document.getElementById("f_stageChange").value,';
+  html += '    followUp:    document.getElementById("f_followUp").value,';
+  html += '    nextDate:    document.getElementById("f_nextDate").value,';
+  html += '    duration:    document.getElementById("f_duration").value';
+  html += '  };';
+  html += '  var btn = document.querySelector(".save-btn-wrap .btn-primary");';
+  html += '  btn.disabled = true; btn.textContent = "저장 중...";';
+  html += '  google.script.run';
+  html += '    .withSuccessHandler(function(json) {';
+  html += '      var res = JSON.parse(json);';
+  html += '      btn.disabled = false; btn.textContent = "💾 활동 저장하기";';
+  html += '      if (res.success) {';
+  html += '        showToast(res.message, "success");';
+  html += '        document.querySelectorAll(".form-group input, .form-group select, .form-group textarea").forEach(function(el) { if (el.type !== "date" || el.id !== "f_actDate") el.value = ""; });';
+  html += '        google.script.run.withSuccessHandler(function(json2) {';
+  html += '          appData = JSON.parse(json2);';
+  html += '          renderCustomerList(); renderDDay();';
+  html += '        }).getInitialData();';
+  html += '      } else { showToast(res.message, "error"); }';
+  html += '    })';
+  html += '    .withFailureHandler(function(e) {';
+  html += '      btn.disabled = false; btn.textContent = "💾 활동 저장하기";';
+  html += '      showToast("저장 실패: " + e.message, "error");';
+  html += '    })';
+  html += '    .saveActivity(JSON.stringify(data));';
+  html += '}';
+  html += '';
+  html += 'function renderDDay() {';
+  html += '  if (!appData) return;';
+  html += '  var mrVal = document.getElementById("mrSelector").value;';
+  html += '  var today = new Date(); today.setHours(0,0,0,0);';
+  html += '  var todayStr = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");';
+  html += '  var dow = today.getDay(); var diffFri = dow === 0 ? 5 : 5 - dow;';
+  html += '  var fri = new Date(today); fri.setDate(today.getDate() + diffFri);';
+  html += '  var friStr = fri.getFullYear() + "-" + String(fri.getMonth()+1).padStart(2,"0") + "-" + String(fri.getDate()).padStart(2,"0");';
+  html += '  var custs = appData.customers.filter(function(c) { return mrVal ? c.mr === mrVal : true; });';
+  html += '  var todayCusts = [], soon3 = [], soon7 = [], delayed = [];';
+  html += '  custs.forEach(function(c) {';
+  html += '    if (!c.nextActDate) return;';
+  html += '    var d = getDDay(c.nextActDate);';
+  html += '    if (d === null) return;';
+  html += '    if (d === 0) todayCusts.push(c);';
+  html += '    else if (d > 0 && d <= 3) soon3.push(c);';
+  html += '    else if (d > 3 && d <= 7) soon7.push(c);';
+  html += '    else if (d < 0) delayed.push(c);';
+  html += '  });';
+  html += '  var weekCount = custs.filter(function(c) {';
+  html += '    return c.nextActDate && c.nextActDate >= todayStr && c.nextActDate <= friStr;';
+  html += '  }).length;';
+  html += '  document.getElementById("kpiToday").textContent = todayCusts.length;';
+  html += '  document.getElementById("kpiWeek").textContent = weekCount;';
+  html += '  document.getElementById("kpiDelayed").textContent = delayed.length;';
+  html += '  var html = "";';
+  html += '  function makeDDayCards(list, cls, emoji, labelFn) {';
+  html += '    list.forEach(function(c) {';
+  html += '      var d = getDDay(c.nextActDate);';
+  html += '      var dayLabel = d < 0 ? (Math.abs(d) + "일 지연") : d === 0 ? "D-Day" : "D-" + d;';
+  html += '      html += "<div class=\'dday-card\'>";';
+  html += '      html += "<div class=\'dc-info\'><div class=\'dc-biz\'>" + c.bizName + " <span style=\'font-weight:400;font-size:12px;color:#64748b;\'>· " + c.name + "</span></div>";';
+  html += '      html += "<div class=\'dc-sub\'>" + c.mr + " | " + c.potGrade + "등급 | " + c.nextActDate + "</div></div>";';
+  html += '      html += "<div class=\'dc-days " + cls + "\'>" + emoji + " " + dayLabel + "</div>";';
+  html += '      var calTitle = "[대웅] " + c.bizName + " - " + c.name + " 방문";';
+  html += '      var calDesc = "MR: " + c.mr;';
+  html += '      html += "<button class=\'btn-cal\' onclick=\'registerCal(\\"" + calTitle + "\\", \\"" + c.nextActDate + "\\", \\"" + calDesc + "\\")\'>📅 캘린더</button>";';
+  html += '      html += "</div>";';
+  html += '    });';
+  html += '  }';
+  html += '  if (todayCusts.length) { html += "<div class=\'dday-section-title dday-red\'>🔴 오늘 방문 예정 (" + todayCusts.length + "명)</div>"; makeDDayCards(todayCusts, "dday-urgent", "🔴", null); }';
+  html += '  if (soon3.length) { html += "<div class=\'dday-section-title dday-orange\'>🟠 3일 이내 (" + soon3.length + "명)</div>"; makeDDayCards(soon3, "dday-urgent", "🟠", null); }';
+  html += '  if (soon7.length) { html += "<div class=\'dday-section-title dday-yellow\'>🟡 7일 이내 (" + soon7.length + "명)</div>"; makeDDayCards(soon7, "dday-warn", "🟡", null); }';
+  html += '  if (delayed.length) { html += "<div class=\'dday-section-title\' style=\'background:#f1f5f9;color:#475569;\'>⏰ 방문 지연 (" + delayed.length + "명)</div>"; makeDDayCards(delayed, "dday-urgent", "⏰", null); }';
+  html += '  if (!html) html = "<div class=\'empty-msg\'>🎉 이번 주 방문 예정 없음 또는 모두 완료!</div>";';
+  html += '  document.getElementById("ddayList").innerHTML = html;';
+  html += '}';
+  html += '';
+  html += 'function registerCal(title, dateStr, desc) {';
+  html += '  google.script.run';
+  html += '    .withSuccessHandler(function(json) {';
+  html += '      var res = JSON.parse(json);';
+  html += '      if (res.success) showToast("📅 캘린더에 등록됐습니다!", "success");';
+  html += '      else showToast("캘린더 등록 실패: " + res.message, "error");';
+  html += '    })';
+  html += '    .addCalendarEvent(title, dateStr, desc);';
+  html += '}';
+  html += '';
+  html += 'function showToast(msg, type) {';
+  html += '  var t = document.getElementById("toast");';
+  html += '  t.textContent = msg; t.className = "toast " + type; t.style.display = "block";';
+  html += '  setTimeout(function() { t.style.display = "none"; }, 3500);';
+  html += '}';
+  html += '</script>';
+  html += '</body></html>';
+
+  return html;
+}

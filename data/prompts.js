@@ -66,19 +66,21 @@ export const session2Categories = [
   { id: 'manager',   label: '소장용' },
   { id: 'mr',        label: 'MR용' },
   { id: 'report',    label: '자동 보고서' },
+  { id: 'crm',       label: '고객관리앱' },
 ]
 
 export const session2CategoryMeta = {
   manager:  { name: '소장용',       color: '#1D4ED8', icon: '👔' },
   mr:       { name: 'MR용',        color: '#059669', icon: '🧑‍💼' },
   report:   { name: '자동 보고서',  color: '#D97706', icon: '📧' },
+  crm:      { name: '고객관리앱',   color: '#7C3AED', icon: '📱' },
 }
 
 // ─────────────────────────────────────────
 // 공통 안전 규칙 + 표준 레이아웃 픽셀 스펙 (모든 프롬프트 삽입)
 // ─────────────────────────────────────────
 const RULES = `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================
 
 [FORBIDDEN ZONES — ABSOLUTE, NO EXCEPTIONS]
 • Right 220px  (X=1700~1920): Logo/branding only — NO content ever
@@ -91,9 +93,9 @@ const RULES = `
 • Title: 48~56px Bold ONE LINE  |  Sub-label: 22px  |  Body: 22px Regular
 • Stat number: 80~96px ExtraBold  |  Caption: 18px at Y≤900px
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================
 ⚠️  STRICT RENDERING RULES — HIGHEST PRIORITY  ⚠️
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================
 
 [NO EXTRA ELEMENTS — CRITICAL]
 • Each template defines EXACTLY what goes on the slide.
@@ -116,9 +118,9 @@ const RULES = `
 • Support desc:   max 28 Korean chars
 • NO LONG SENTENCES anywhere. Summarize aggressively.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================
 [STANDARD LAYOUT TEMPLATES — USE EXACT PIXEL VALUES]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================
 
 [TEMPLATE: COVER]
 • Badge:       pill shape, Y=260, centered, max 14 chars
@@ -223,7 +225,7 @@ const RULES = `
     - Bullets: 4 items, 22px Regular, X=760, start Y=306, 52px line-height
 ⛔ STOP HERE. Nothing below Y=620. NO EXTRA ELEMENTS.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================
 
 [FINAL CHECK BEFORE RENDERING EACH SLIDE]
 □ Did I add ANY element not in the template? → REMOVE IT
@@ -233,7 +235,7 @@ const RULES = `
 □ Is the closing slide the last slide? → YES
 □ Minimum gap 20px between all elements? → YES
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+================================================================`
 
 // ─────────────────────────────────────────
 // 카테고리별 공통 헤더 생성 함수
@@ -246,7 +248,7 @@ const header = (style, slides, primary, accent, accentBg, divider) =>
 ■ TOTAL SLIDES: ${slides}
 ■ FONT: Pretendard
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+================================================================
 
 [DESIGN PHILOSOPHY]
 Create VISUALLY RICH, PROFESSIONAL slides!
@@ -4132,6 +4134,175 @@ const PROMPT_S2_03 = `당신은 Google Apps Script 전문가입니다.
 
 완전하고 실행 가능한 코드를 작성해주세요.`
 
+// ─────────────────────────────────────────
+// 실습2-04: 고객관리 웹앱 (CRM)
+// ─────────────────────────────────────────
+const PROMPT_S2_04 = `당신은 Google Apps Script 전문가입니다.
+아래 스프레드시트 데이터를 읽어 MR과 소장 모두 사용할 수 있는 고객관리 웹앱을 만들어주세요.
+
+===== 1. 스프레드시트 구조 =====
+
+const SPREADSHEET_ID = '';  // 반드시 실제 ID로 변경
+
+[시트1: 조직도및MR]
+컬럼(0-index): 구분(0), 사업부(1), 사무소(2), 소장(3), MR(4), 직급(5), 담당고객수(6), 누적활동건수(7), 연락처(가상)(8)
+※ 구분 값: '관리'=소장, '실무'=MR
+
+[시트2: 고객마스터] — 헤더 1행, 데이터 2행부터
+컬럼(0-index): 고객ID(0), 사업부(1), 사무소(2), 소장(3), MR(4), 거래처명(5), 고객명(6), 고객유형(7),
+전문과목(8), 전월단계(9), 현재단계(10), 잠재점수(11), 잠재등급(12), 우선순위(13),
+관심분야(14), 세부관심(15), 선호접점(16), 최근활동일(17), 다음활동예정일(18),
+월목표활동수(19), 이번달활동수(20), 최근반응(21), 중점제품(22), 접근팁(23), 비고(24)
+
+[시트3: 활동로그] — 헤더 1행, 데이터 2행부터
+컬럼(0-index): 활동ID(0), 활동일자(1), 주차(2), 사업부(3), 사무소(4), 소장(5), MR(6), 고객ID(7),
+거래처명(8), 고객명(9), 전문과목(10), 활동유형(11), 방문목적(12), 중점제품(13),
+결과요약(14), 고객반응(15), 단계변화(16), 후속조치(17), 다음활동예정일(18),
+소요시간(분)(19), 활동점수(20), 관리자피드백(21)
+
+===== 2. 서버 사이드 함수 명세 =====
+
+[doGet()]
+- HtmlService.createHtmlOutput(buildAppHtml())으로 HTML 반환
+- setTitle('대웅제약 고객관리 앱') 설정
+
+[getInitialData()]
+- 조직도및MR에서 구분='실무'인 MR 목록: [{name, office, title}]
+- 고객마스터 전체: 각 행을 아래 객체로 변환
+  { id, bizUnit, office, manager, mr, bizName, name, type, specialty,
+    prevStage, currStage, potScore, potGrade, priority, interest, detailInt,
+    prefContact, lastActDate, nextActDate, monthTarget, monthActual,
+    lastReaction, keyProduct, approachTip, note }
+  날짜 필드(lastActDate, nextActDate)는 'YYYY-MM-DD' 형식 문자열로 변환
+- 활동로그 전체: 각 행을 아래 객체로 변환
+  { actId, actDate, week, bizUnit, office, manager, mr, custId, bizName, custName,
+    specialty, actType, purpose, keyProduct, summary, reaction,
+    stageChange, followUp, nextDate, duration, score, feedback }
+- JSON.stringify({ mrList, customers, activities }) 반환
+
+[saveActivity(dataJson)]
+- dataJson 파싱: { actDate, mr, custId, custName, actType, purpose, keyProduct,
+                   summary, reaction, stageChange, followUp, nextDate, duration }
+- 활동로그 시트에 새 행 추가:
+  활동ID='ACT'+타임스탬프, 주차=ISO 주차 자동계산,
+  사무소/소장/사업부는 고객마스터에서 custId로 조회
+- 고객마스터 해당 고객 행 업데이트: 최근활동일(18열), 다음활동예정일(19열), 이번달활동수(21열) +1
+- nextDate가 있으면 CalendarApp으로 구글 캘린더 종일 일정 등록:
+  제목: '[대웅] {거래처명} - {고객명} 방문'
+  설명: 'MR: {mr} | 목적: {purpose} | 중점제품: {keyProduct}'
+- JSON.stringify({ success: true/false, message }) 반환
+
+[addNewCustomer(dataJson)]
+- dataJson 파싱: { mr, bizName, custName, custType, specialty, currStage, potScore,
+                   potGrade, priority, interest, detailInt, prefContact, keyProduct,
+                   approachTip, monthTarget, lastActDate, nextActDate, note }
+- 조직도및MR에서 mr 기준으로 bizUnit, office, manager 조회
+- 고객ID = 'CUST' + 타임스탬프
+- 고객마스터에 새 행 추가 (컬럼 순서 정확히 준수):
+  [custId, bizUnit, office, manager, mr, bizName, custName, custType, specialty,
+   currStage(전월단계=현재단계와 동일), currStage, potScore, potGrade, priority,
+   interest, detailInt, prefContact, lastActDate, nextActDate, monthTarget,
+   0(이번달활동수), '', keyProduct, approachTip, note]
+- JSON.stringify({ success: true/false, custId, message }) 반환
+
+[addCalendarEvent(title, dateStr, description)]
+- dateStr 'YYYY-MM-DD' → Date 객체 변환
+- CalendarApp.getDefaultCalendar().createAllDayEvent(title, date, {description}) 실행
+- JSON.stringify({ success: true/false }) 반환
+
+===== 3. 앱 화면 구성 =====
+
+[공통 헤더]
+- 배경: #1A2E5A, 앱 이름: '대웅제약 고객관리'
+- MR 선택 드롭다운 (전체 보기 + MR 목록, 변경 시 고객 목록/D-Day 즉시 갱신)
+
+[탭 구성: 4개]
+PC: 상단 탭바
+모바일(768px 이하): 화면 하단 고정 네비게이션 바 (상단 탭바 숨김)
+  탭 목록: 📋고객목록 / 📝활동기록 / ⚠️D-Day / ➕신규등록
+
+[탭1: 고객 목록]
+필터 바 (모바일에서는 '🔍 검색/필터' 버튼으로 접기/펼치기):
+- 텍스트 검색 (거래처명, 고객명)
+- 잠재등급: 전체/A/B/C/D
+- 현재단계: 전체/1단계/2단계/3단계/4단계/5단계
+- 날짜 빠른 선택 (다음활동예정일 기준):
+  전체 / 오늘 방문 / 이번 주(~금) / 이번 달(~말일) / 지연 방문 / 직접 입력
+  '직접 입력' 선택 시 시작일~종료일 date picker + 초기화 버튼 노출
+
+고객 카드 그리드:
+- PC: 2~3열, 모바일: 1열
+- 카드: 거래처명(굵게), 고객명·전문과목, 잠재등급 배지, 현재단계 배지, D-Day 표시
+  D-Day 0이하=빨강(지연), 1~3=빨강, 4~7=주황, 이상=회색
+
+고객 상세 모달:
+- PC: 가운데 팝업, 모바일: 하단에서 슬라이드업 (border-radius: 20px 20px 0 0)
+- 좌측: 기본정보 (mr, specialty, type, currStage, potGrade, potScore, interest,
+        detailInt, prefContact, keyProduct, lastActDate, nextActDate, approachTip)
+- 우측: 활동 이력 타임라인 (해당 custId, 최신순, actDate/actType/summary/stageChange)
+- 하단: '활동 기록하기' 버튼 → 탭2로 이동 + 해당 고객 자동 선택
+
+[탭2: 활동 기록]
+폼: 활동일자(기본=오늘), MR 선택, 고객 선택(MR 변경 시 갱신),
+활동유형(직접방문/전화/이메일/화상), 방문목적, 중점제품,
+결과요약(textarea), 고객반응(매우긍정/긍정/중립/부정/매우부정),
+단계변화(상승/유지/하락), 후속조치, 다음활동예정일, 소요시간(분)
+저장 버튼 → saveActivity() 호출 → 성공 시 폼 초기화 + 데이터 재로드
+
+[탭3: D-Day 경보]
+상단 KPI 3개: 오늘 방문 예정 / 이번 주 방문 예정 / 지연 방문
+섹션별 목록:
+- 🔴 오늘 방문 / 🟠 3일 이내(D-1~D-3) / 🟡 7일 이내(D-4~D-7) / ⏰ 지연
+각 카드: 거래처명, 고객명, MR, 잠재등급, 날짜, '📅 캘린더' 버튼 → addCalendarEvent()
+
+[탭4: 신규 고객 등록]
+섹션1 - 기본 정보: MR*(필수), 거래처명*(필수), 고객명*(필수), 고객유형, 전문과목,
+         현재단계(1~5단계 선택, 기본: 1단계), 잠재등급(A/B/C/D, 기본: C),
+         잠재점수(숫자 0~100), 우선순위(높음/중간/낮음)
+섹션2 - 고객 특성: 관심분야, 세부관심, 선호접점, 중점제품, 접근팁(textarea)
+섹션3 - 활동 계획: 월목표활동수(기본:2), 최근활동일, 다음활동예정일, 비고
+저장 버튼 → addNewCustomer() → 성공 시 폼 초기화 + 데이터 재로드 + 고객 목록 탭 이동
+
+===== 4. 디자인 & 모바일 최적화 =====
+
+컬러 시스템:
+- 메인: #1A2E5A, 포인트: #E8620A, 배경: #F4F7FB, 테두리: #D0DAE8
+- 잠재등급 배지: A=빨강(#fee2e2/#b91c1c), B=주황(#ffedd5/#c2410c), C=파랑(#dbeafe/#1d4ed8), D=회색
+- 현재단계 배지: 5단계=진초록, 4단계=초록, 3단계=파랑, 2단계=주황, 1단계=회색
+
+모바일 최적화 (@media max-width: 768px):
+- 상단 탭바 숨김, 하단 네비게이션 바 표시 (position: fixed, bottom: 0)
+- 탭 콘텐츠 하단 패딩 80px (하단 네비와 겹침 방지)
+- 모달: 하단 슬라이드업 (border-radius 상단만, max-height: 90vh, overflow-y: auto)
+- 필터 바: 접기/펼치기 토글 버튼, 기본 상태는 접힘
+- 입력 필드 font-size: 16px (iOS 자동 줌 방지)
+- 터치 타겟 min-height: 44px
+- 토스트 알림: 하단 네비 위 (bottom: 70px)
+- 고객 그리드: 1열
+
+===== 5. 클라이언트 동작 규칙 =====
+
+- 앱 시작 시 google.script.run.getInitialData()로 데이터 1회 로드
+- 모든 필터/검색/탭 전환은 클라이언트에서 처리 (서버 재호출 없음)
+- 저장/등록 성공 후에만 getInitialData() 재호출로 데이터 갱신
+- 날짜는 항상 'YYYY-MM-DD' 문자열로 비교
+- 토스트 알림으로 성공/실패 메시지 3.5초 표시
+
+===== 6. 코딩 규칙 =====
+
+- buildAppHtml() 함수에서 html 문자열 변수에 += 로 조합 후 return html
+- 모든 HTML은 문자열 연결(+)로 작성 (백틱 템플릿 리터럴 중첩 절대 금지)
+- 날짜 정규화 함수: Date 객체, 문자열 모두 'YYYY-MM-DD'로 변환
+- 에러 핸들링: try/catch로 감싸고 JSON.stringify({success:false, message:e.message}) 반환
+- const SPREADSHEET_ID = ''; 최상단 선언
+
+===== 7. 배포 방법 =====
+1. SPREADSHEET_ID 값 변경
+2. 배포 > 새 배포 > 웹 앱 > 실행 계정: 나 > 액세스: 모든 사용자
+3. 배포 URL 접속
+
+완전하고 실행 가능한 코드를 작성해주세요.`
+
 export const session2Prompts = [
   {
     id: 201, section: 'session2', tool: 'vibe', category: 'manager',
@@ -4159,6 +4330,15 @@ export const session2Prompts = [
     difficulty: '초급',
     time: '15~20분',
     promptText: PROMPT_S2_03,
+  },
+  {
+    id: 204, section: 'session2', tool: 'vibe', category: 'crm',
+    title: '고객관리 웹앱 (CRM)',
+    description: '고객 목록·검색·필터 · 고객 상세 + 활동 이력 타임라인 · 활동 기록 입력 폼 · D-Day 미방문 경보 · 구글 캘린더 자동 일정 등록.',
+    status: 'ready',
+    difficulty: '고급',
+    time: '50~60분',
+    promptText: PROMPT_S2_04,
   },
 ]
 
