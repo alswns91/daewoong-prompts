@@ -1179,6 +1179,63 @@ function Session2View({ prompts, meta }) {
           </div>
         </div>
 
+        {/* 완성본 데모 링크 */}
+        <div className="mb-6 bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: 'linear-gradient(90deg, #1A2E5A08, #E8620A08)' }}>
+            <span className="text-sm">🎯</span>
+            <span className="text-xs font-bold text-slate-700">강사 완성본 미리보기 — 실습 결과물이 어떻게 생겼는지 확인해보세요</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+            {[
+              {
+                color: '#2563EB',
+                icon: '🖥️',
+                label: '소장용 팀 성과 대시보드',
+                desc: '전체 MR 성과 · 파이프라인 · 방문 지연',
+                url: 'https://script.google.com/macros/s/AKfycbxk8zW2D_D1Me0zdu9uVAbHZKLgESZpUIL--Df20ZJrtp_Lxljv5ITY8LyjXaoYtsX8Gg/exec',
+              },
+              {
+                color: '#059669',
+                icon: '📱',
+                label: 'MR 개인 고객 관리 대시보드',
+                desc: '내 담당 거래처 · D-Day 알림 · 활동 이력',
+                url: 'https://script.google.com/macros/s/AKfycbyRrGZgG_Beq7QME0mF60YJ_tUD4BH3gq1nEG_fHvRcV71XL7ViY8bSVGsGDod9gHb11w/exec',
+              },
+              {
+                color: '#7C3AED',
+                icon: '📋',
+                label: '고객관리 웹앱 (CRM)',
+                desc: '고객 목록 · 활동 기록 · D-Day 경보 · 신규 등록',
+                url: 'https://script.google.com/macros/s/AKfycbwgWw8-CFYaX2hXrgBRNIWPjqksOLXykX7ow9NtNSOIkQJTB3542Xl7Yz3xfpV6xUKGUg/exec',
+              },
+            ].map((item, i) => (
+              <div key={i} className="px-4 py-4 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm flex-shrink-0"
+                    style={{ background: item.color + '18' }}>
+                    {item.icon}
+                  </div>
+                  <span className="text-xs font-bold text-slate-700">{item.label}</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">{item.desc}</p>
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-auto flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-95"
+                  style={{ background: `linear-gradient(135deg, ${item.color}, ${item.color}cc)` }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  완성본 열기
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* 단계별 상세 가이드 */}
         <StepGuide />
 
