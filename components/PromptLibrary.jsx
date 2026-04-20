@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { prompts, session2Prompts, categories, categoryMeta, sections, session2Categories, session2CategoryMeta, nlmCategories, nlmCategoryMeta } from '../data/prompts'
@@ -1159,7 +1159,7 @@ function Session2View({ prompts, meta }) {
                 icon: '🖥️',
                 label: '소장용 팀 성과 대시보드',
                 desc: '전체 MR 성과 · 파이프라인 · 방문 지연',
-                url: 'https://script.google.com/macros/s/AKfycbxk8zW2D_D1Me0zdu9uVAbHZKLgESZpUIL--Df20ZJrtp_Lxljv5ITY8LyjXaoYtsX8Gg/exec',
+                url: 'https://script.google.com/macros/s/AKfycbzLRnQ3AP7hko61bWSBYA0LLH2vGDHuu1qgUlw3_UkxaLCgo0Yng-wMQD9gecknA7DGBQ/exec',
               },
               {
                 color: '#059669',

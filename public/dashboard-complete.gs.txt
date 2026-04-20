@@ -25,17 +25,18 @@ function loadAllData() {
   const orgSheet = ss.getSheetByName('조직도및MR');
   const orgValues = orgSheet.getDataRange().getValues();
   const orgRows = orgValues.slice(1).map(row => ({
-    구분: row[0],
-    사업부: row[1],
-    사무소: row[2],
-    소장: row[3],
-    MR: row[4],
-    직급: row[5],
-    담당고객수: row[6],
-    누적활동건수: row[7],
-    연락처: row[8]
+    구분: String(row[0] || '').trim(),
+    사업부: String(row[1] || '').trim(),
+    사무소: String(row[2] || '').trim(),
+    소장: String(row[3] || '').trim(),
+    MR: String(row[4] || '').trim(),
+    직급: String(row[5] || '').trim(),
+    담당고객수: Number(row[6]) || 0,
+    누적활동건수: Number(row[7]) || 0,
+    연락처: String(row[8] || '').trim()
   }));
-  const mrList = orgRows.filter(r => r.구분 === '실무').map(r => r.MR);
+  // '실무' 또는 '실무MR' 등 유사값 모두 허용
+  const mrList = orgRows.filter(r => r.구분.includes('실무') && r.MR).map(r => r.MR);
 
   // 2. 고객마스터 시트
   const custSheet = ss.getSheetByName('고객마스터');
@@ -58,7 +59,7 @@ function loadAllData() {
       전월단계: row[9],
       현재단계: row[10],
       잠재점수: Number(row[11]) || 0,
-      잠재등급: row[12],
+      잠재등급: String(row[12] || '').trim(),
       우선순위: row[13],
       관심분야: row[14],
       세부관심: row[15],
@@ -184,6 +185,67 @@ function loadAllData() {
     이번달활동수: r.이번달활동수
   }));
 
+  // =============================================
+  // MR 배치 현황 (사무소별 MR 배치 + 담당 현황)
+  // =============================================
+  const mrDeployment = orgRows
+    .filter(r => r.구분.includes('실무') && r.MR)
+    .map(r => {
+      const mrCusts = custRows.filter(c => c.MR === r.MR);
+      const monthlyAct    = mrCusts.reduce((s, c) => s + c.이번달활동수, 0);
+      const monthlyTarget = mrCusts.reduce((s, c) => s + c.월목표활동수, 0);
+      const achieveRate   = monthlyTarget > 0 ? Math.min(100, Math.round(monthlyAct / monthlyTarget * 100)) : 0;
+      const aGrade        = mrCusts.filter(c => c.잠재등급 === 'A').length;
+      const delayedCnt    = mrCusts.filter(c => c._diffDays !== null && c._diffDays > 0).length;
+      return {
+        MR: r.MR,
+        사무소: r.사무소 || '-',
+        직급: r.직급 || '',
+        담당거래처수: mrCusts.length,
+        이번달활동수: monthlyAct,
+        월목표활동수: monthlyTarget,
+        활동달성률: achieveRate,
+        A등급수: aGrade,
+        방문지연수: delayedCnt
+      };
+    });
+
+  // =============================================
+  // 고효율 집중 필요 구역 분석
+  // 잠재등급 A·B + 잠재점수 60+ 이면서
+  // 이번달 활동 0건 OR 방문 7일 이상 지연
+  // =============================================
+  const focusNeeded = custRows
+    .filter(r => {
+      const highPot  = (r.잠재등급 === 'A' || r.잠재등급 === 'B') && r.잠재점수 >= 60;
+      const noAct    = r.이번달활동수 === 0;
+      const delayed  = r._diffDays !== null && r._diffDays > 7;
+      return highPot && (noAct || delayed);
+    })
+    .sort((a, b) => {
+      if (a.잠재등급 !== b.잠재등급) return a.잠재등급 < b.잠재등급 ? -1 : 1;
+      if (b.잠재점수 !== a.잠재점수) return b.잠재점수 - a.잠재점수;
+      return (b._diffDays || 0) - (a._diffDays || 0);
+    })
+    .slice(0, 30)
+    .map(r => {
+      const noAct   = r.이번달활동수 === 0;
+      const delayed = r._diffDays !== null && r._diffDays > 7;
+      const reason  = noAct && delayed ? '활동없음+지연' : noAct ? '이번달활동없음' : '방문지연';
+      return {
+        거래처명: r.거래처명,
+        고객명: r.고객명,
+        MR: r.MR,
+        사무소: r.사무소 || '-',
+        잠재등급: r.잠재등급,
+        잠재점수: r.잠재점수,
+        현재단계: r.현재단계,
+        이번달활동수: r.이번달활동수,
+        지연일수: r._diffDays || 0,
+        사유: reason
+      };
+    });
+
   const todayStr = Utilities.formatDate(today, 'Asia/Seoul', 'yyyy-MM-dd');
 
   return {
@@ -191,6 +253,8 @@ function loadAllData() {
     kpi: { totalCustomers, thisMonthActivity, gradeACount, upcomingCount },
     mrPerf,
     mrList,
+    mrDeployment,
+    focusNeeded,
     stageMap,
     delayedList,
     custList
@@ -201,7 +265,14 @@ function loadAllData() {
 // HTML 빌드
 // =============================================
 function buildHtml(data) {
-  const jsonData = JSON.stringify(data);
+  // 스크립트 태그를 깨트릴 수 있는 특수문자 이스케이프
+  const jsonData = JSON.stringify(data)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -285,10 +356,54 @@ function buildHtml(data) {
   .page-btn:hover { border-color: var(--blue); color: var(--blue); }
   .page-btn.active { background: var(--blue); color: var(--white); border-color: var(--blue); }
   .page-info { font-size: 0.78rem; color: var(--gray-500); margin: 0 0.5rem; }
+  /* ── MR 배치 현황 ── */
+  .deploy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 1rem; }
+  .deploy-card { background: var(--white); border-radius: var(--radius); padding: 1.2rem 1.2rem 1rem; box-shadow: var(--shadow); border: 1px solid var(--gray-200); border-top: 3px solid var(--blue); transition: transform 0.15s, box-shadow 0.15s; }
+  .deploy-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .deploy-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.6rem; }
+  .deploy-card-name { font-weight: 800; font-size: 0.95rem; color: var(--navy); }
+  .deploy-card-rank { font-size: 0.7rem; background: var(--blue-pale); color: var(--blue); padding: 1px 7px; border-radius: 20px; font-weight: 600; }
+  .deploy-card-office { font-size: 0.73rem; color: var(--gray-500); margin-bottom: 0.75rem; }
+  .deploy-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem; margin-bottom: 0.75rem; }
+  .deploy-stat { text-align: center; padding: 0.45rem 0.25rem; background: var(--gray-50); border-radius: 7px; }
+  .deploy-stat-num { font-size: 1.05rem; font-weight: 800; color: var(--navy); line-height: 1; }
+  .deploy-stat-label { font-size: 0.62rem; color: var(--gray-500); margin-top: 2px; }
+  .achieve-wrap { margin-top: 0.6rem; }
+  .achieve-label-row { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--gray-500); margin-bottom: 4px; }
+  .achieve-pct { font-weight: 700; }
+  .achieve-bg { background: var(--gray-200); border-radius: 4px; height: 7px; overflow: hidden; }
+  .achieve-fill { height: 100%; border-radius: 4px; transition: width 0.7s ease; }
+  .achieve-high { background: var(--success); } .achieve-mid { background: var(--warning); } .achieve-low { background: var(--danger); }
+  .deploy-badges { display: flex; gap: 5px; margin-top: 0.65rem; flex-wrap: wrap; }
+  /* ── 고효율 집중 필요 구역 ── */
+  .focus-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--gray-200); background: #FFFBEB; }
+  .focus-header-icon { font-size: 1.2rem; }
+  .focus-header-text { flex: 1; font-size: 0.82rem; color: #92400E; line-height: 1.4; }
+  .focus-header-cnt { font-size: 1.1rem; font-weight: 800; color: #B45309; white-space: nowrap; }
+  .badge-reason-noact { background: #FFF7ED; color: #C2410C; }
+  .badge-reason-delay { background: #FEE2E2; color: #991B1B; }
+  .badge-reason-both  { background: #F3E8FF; color: #6B21A8; }
   @media (max-width: 1024px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .two-col { grid-template-columns: 1fr; } }
-  @media (max-width: 640px) { .header { padding: 0 1rem; } .main { padding: 1rem 0.75rem 3rem; } .kpi-grid { grid-template-columns: 1fr 1fr; gap: 0.75rem; } .pipeline-grid { grid-template-columns: repeat(3, 1fr); } .kpi-value { font-size: 1.8rem; } .filter-bar input { min-width: 140px; } thead th, tbody td { padding: 0.55rem 0.6rem; font-size: 0.78rem; } }
-  @media (max-width: 400px) { .kpi-grid { grid-template-columns: 1fr; } .pipeline-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .header { padding: 0 1rem; } .main { padding: 1rem 0.75rem 3rem; } .kpi-grid { grid-template-columns: 1fr 1fr; gap: 0.75rem; } .pipeline-grid { grid-template-columns: repeat(3, 1fr); } .kpi-value { font-size: 1.8rem; } .filter-bar input { min-width: 140px; } thead th, tbody td { padding: 0.55rem 0.6rem; font-size: 0.78rem; } .deploy-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 400px) { .kpi-grid { grid-template-columns: 1fr; } .pipeline-grid { grid-template-columns: repeat(2, 1fr); } .deploy-grid { grid-template-columns: 1fr; } }
 </style>
+<!-- 전역 에러 캐처 (스크립트 문법 오류도 잡음) -->
+<script>
+window.addEventListener('error', function(e) {
+  var box = document.getElementById('errorBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'errorBox';
+    box.style.cssText = 'background:#FEE2E2;border:2px solid #DC2626;border-radius:8px;padding:1rem 1.5rem;margin:1rem;font-size:0.85rem;color:#7F1D1D;';
+    document.body ? document.body.prepend(box) : document.addEventListener('DOMContentLoaded', function(){ document.body.prepend(box); });
+  }
+  box.style.display = 'block';
+  box.innerHTML = '<strong>⚠️ 오류 발생 (캡처해서 공유해주세요)</strong><br>' +
+    '메시지: ' + e.message + '<br>' +
+    '파일: ' + e.filename + '<br>' +
+    '라인: ' + e.lineno + ' / 컬럼: ' + e.colno;
+});
+</script>
 </head>
 <body>
 <header class="header">
@@ -297,6 +412,8 @@ function buildHtml(data) {
     <div class="header-date" id="todayLabel"></div>
   </div>
 </header>
+<!-- 에러 표시 박스 (오류 없으면 숨겨짐) -->
+<div id="errorBox" style="display:none;background:#FEE2E2;border:2px solid #DC2626;border-radius:8px;padding:1rem 1.5rem;margin:1rem;font-size:0.9rem;color:#7F1D1D;white-space:pre-wrap;"><strong>⚠️ 대시보드 오류 발생 — 아래 내용을 캡처해서 공유해주세요</strong><br></div>
 <main class="main">
   <div class="section">
     <div class="section-title">핵심 성과 지표</div>
@@ -307,6 +424,30 @@ function buildHtml(data) {
       <div class="kpi-card red"><span class="kpi-icon">📅</span><div class="kpi-label">7일 내 방문 예정</div><div class="kpi-value" id="kpi4">—</div><div class="kpi-sub">오늘~7일 이내</div></div>
     </div>
   </div>
+  <!-- ── MR 배치 현황 ── -->
+  <div class="section">
+    <div class="section-title">MR 배치 현황 <span id="deployCount" style="font-size:0.82rem;color:var(--gray-500);font-weight:400;margin-left:4px"></span></div>
+    <div class="deploy-grid" id="deployGrid"></div>
+  </div>
+
+  <!-- ── 고효율 집중 필요 구역 ── -->
+  <div class="section">
+    <div class="section-title">⚡ 고효율 집중 필요 구역 <span id="focusCount" style="font-size:0.82rem;color:var(--warning);font-weight:400;margin-left:4px"></span></div>
+    <div class="panel">
+      <div class="focus-header">
+        <span class="focus-header-icon">📍</span>
+        <span class="focus-header-text">잠재등급 A·B, 잠재점수 60점 이상인데 이번 달 활동이 0건이거나 방문이 7일 이상 지연된 거래처입니다. 소장의 즉각적인 리소스 배치가 필요합니다.</span>
+        <span class="focus-header-cnt" id="focusHeaderCnt"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>거래처명</th><th>고객명</th><th>MR</th><th>사무소</th><th>잠재등급</th><th>잠재점수</th><th>현재단계</th><th>이번달활동</th><th>지연일수</th><th>사유</th></tr></thead>
+          <tbody id="focusTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div class="two-col section">
     <div class="panel">
       <div class="panel-header"><div class="section-title" style="margin-bottom:0">현재단계 파이프라인</div></div>
@@ -365,32 +506,112 @@ function buildHtml(data) {
   </div>
 </main>
 <script>
-const RAW = ${jsonData};
-let filteredCusts = [...RAW.custList];
+// ── 에러 표시 헬퍼 ──────────────────────────────────────────────
+function showError(where, err) {
+  console.error('[대시보드 오류] ' + where + ':', err);
+  const box = document.getElementById('errorBox');
+  if (box) {
+    box.style.display = 'block';
+    box.innerHTML += '<p><strong>' + where + '</strong>: ' + err.message + '</p>';
+  }
+}
+
+// ── RAW 데이터 파싱 ─────────────────────────────────────────────
+let RAW, filteredCusts;
+try {
+  RAW = ${jsonData};
+  filteredCusts = RAW.custList ? [...RAW.custList] : [];
+} catch(e) {
+  showError('RAW 데이터 파싱', e);
+}
+
 let activeMR = null;
 let activeStage = null;
 let currentPage = 1;
 const PAGE_SIZE = 20;
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('todayLabel').textContent = RAW.today + ' 기준';
-  document.getElementById('kpi1').textContent = n(RAW.kpi.totalCustomers);
-  document.getElementById('kpi2').textContent = n(RAW.kpi.thisMonthActivity);
-  document.getElementById('kpi3').textContent = n(RAW.kpi.gradeACount);
-  document.getElementById('kpi4').textContent = n(RAW.kpi.upcomingCount);
-  renderPipeline();
-  renderMRTable();
-  const mrSel = document.getElementById('filterMR');
-  RAW.mrList.forEach(mr => {
-    const o = document.createElement('option');
-    o.value = mr; o.textContent = mr;
-    mrSel.appendChild(o);
-  });
-  renderDelayTable();
-  applyFilters();
+  if (!RAW) { showError('DOMContentLoaded', new Error('RAW 데이터가 없습니다')); return; }
+  try { document.getElementById('todayLabel').textContent = RAW.today + ' 기준'; } catch(e) { showError('todayLabel', e); }
+  try { document.getElementById('kpi1').textContent = n(RAW.kpi.totalCustomers); } catch(e) { showError('kpi1', e); }
+  try { document.getElementById('kpi2').textContent = n(RAW.kpi.thisMonthActivity); } catch(e) { showError('kpi2', e); }
+  try { document.getElementById('kpi3').textContent = n(RAW.kpi.gradeACount); } catch(e) { showError('kpi3', e); }
+  try { document.getElementById('kpi4').textContent = n(RAW.kpi.upcomingCount); } catch(e) { showError('kpi4', e); }
+  try { renderDeployment(); } catch(e) { showError('renderDeployment', e); }
+  try { renderFocusNeeded(); } catch(e) { showError('renderFocusNeeded', e); }
+  try { renderPipeline(); } catch(e) { showError('renderPipeline', e); }
+  try { renderMRTable(); } catch(e) { showError('renderMRTable', e); }
+  try {
+    const mrSel = document.getElementById('filterMR');
+    (RAW.mrList || []).forEach(mr => {
+      const o = document.createElement('option');
+      o.value = mr; o.textContent = mr;
+      mrSel.appendChild(o);
+    });
+  } catch(e) { showError('mrList 필터', e); }
+  try { renderDelayTable(); } catch(e) { showError('renderDelayTable', e); }
+  try { applyFilters(); } catch(e) { showError('applyFilters', e); }
 });
 
 function n(v) { return Number(v).toLocaleString('ko-KR'); }
+
+function renderDeployment() {
+  const list = RAW.mrDeployment || [];
+  document.getElementById('deployCount').textContent = list.length + '명';
+  const grid = document.getElementById('deployGrid');
+  if (!list.length) { grid.innerHTML = '<p class="empty-msg">배치 데이터 없음</p>'; return; }
+  grid.innerHTML = list.map(d => {
+    const pct = d.활동달성률;
+    const fillClass = pct >= 80 ? 'achieve-high' : pct >= 50 ? 'achieve-mid' : 'achieve-low';
+    const delayBadge = d.방문지연수 > 0
+      ? '<span class="badge badge-delay">' + d.방문지연수 + '건 지연</span>'
+      : '<span class="badge" style="background:#DCFCE7;color:#166534">지연없음</span>';
+    return '<div class="deploy-card">' +
+      '<div class="deploy-card-top">' +
+        '<span class="deploy-card-name">' + d.MR + '</span>' +
+        (d.직급 ? '<span class="deploy-card-rank">' + d.직급 + '</span>' : '') +
+      '</div>' +
+      '<div class="deploy-card-office">📍 ' + d.사무소 + '</div>' +
+      '<div class="deploy-stats">' +
+        '<div class="deploy-stat"><div class="deploy-stat-num">' + n(d.담당거래처수) + '</div><div class="deploy-stat-label">담당</div></div>' +
+        '<div class="deploy-stat"><div class="deploy-stat-num">' + n(d.이번달활동수) + '</div><div class="deploy-stat-label">이번달활동</div></div>' +
+        '<div class="deploy-stat"><div class="deploy-stat-num" style="color:' + (d.A등급수>0?'#B45309':'var(--gray-500)') + '">' + n(d.A등급수) + '</div><div class="deploy-stat-label">A등급</div></div>' +
+      '</div>' +
+      '<div class="achieve-wrap">' +
+        '<div class="achieve-label-row"><span>활동 달성률</span><span class="achieve-pct" style="color:' + (pct>=80?'#059669':pct>=50?'#D97706':'#DC2626') + '">' + pct + '%</span></div>' +
+        '<div class="achieve-bg"><div class="achieve-fill ' + fillClass + '" style="width:' + pct + '%"></div></div>' +
+      '</div>' +
+      '<div class="deploy-badges">' + delayBadge + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderFocusNeeded() {
+  const list = RAW.focusNeeded || [];
+  document.getElementById('focusCount').textContent = list.length + '건';
+  document.getElementById('focusHeaderCnt').textContent = list.length + '건';
+  const tbody = document.getElementById('focusTableBody');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-msg">집중 필요 거래처 없음 ✓</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(r => {
+    const reasonClass = r.사유 === '활동없음+지연' ? 'badge-reason-both' : r.사유 === '이번달활동없음' ? 'badge-reason-noact' : 'badge-reason-delay';
+    const delayTxt = r.지연일수 > 0 ? '+' + r.지연일수 + '일' : '-';
+    return '<tr>' +
+      '<td><strong>' + r.거래처명 + '</strong></td>' +
+      '<td>' + r.고객명 + '</td>' +
+      '<td>' + r.MR + '</td>' +
+      '<td style="font-size:0.78rem;color:var(--gray-500)">' + r.사무소 + '</td>' +
+      '<td><span class="badge badge-' + r.잠재등급 + '">' + r.잠재등급 + '</span></td>' +
+      '<td><strong style="color:var(--navy)">' + r.잠재점수 + '</strong></td>' +
+      '<td><span class="badge ' + stageBadgeClass(r.현재단계) + '">' + r.현재단계 + '</span></td>' +
+      '<td style="color:' + (r.이번달활동수===0?'var(--danger)':'var(--gray-700)') + '">' + n(r.이번달활동수) + '</td>' +
+      '<td>' + (r.지연일수>0 ? '<span class="badge badge-delay">' + delayTxt + '</span>' : '-') + '</td>' +
+      '<td><span class="badge ' + reasonClass + '">' + r.사유 + '</span></td>' +
+    '</tr>';
+  }).join('');
+}
 
 function renderPipeline() {
   const stageNames = { '1단계':'초기탐색','2단계':'관계형성','3단계':'검토시험','4단계':'정기처방','5단계':'핵심고객' };
@@ -425,7 +646,7 @@ function renderMRTable() {
   const tbody = document.getElementById('mrTableBody');
   const maxAct = Math.max.apply(null, RAW.mrPerf.map(r => r.이번달활동수).concat([1]));
   tbody.innerHTML = RAW.mrPerf.map(r =>
-    '<tr data-mr="' + r.MR + '" onclick="toggleMRFilter(\'' + r.MR + '\', this)">' +
+    '<tr data-mr="' + r.MR.replace(/"/g, '&quot;') + '">' +
     '<td><strong>' + r.MR + '</strong></td>' +
     '<td>' + n(r.담당고객수) + '</td>' +
     '<td><div class="rank-bar"><div class="bar" style="width:' + Math.round(r.이번달활동수/maxAct*80) + 'px"></div>' + n(r.이번달활동수) + '</div></td>' +
@@ -433,6 +654,10 @@ function renderMRTable() {
     '<td>' + n(r.단계45수) + '</td>' +
     '<td>' + r.평균잠재점수 + '</td></tr>'
   ).join('');
+  // onclick 대신 이벤트 리스너 방식 사용 (템플릿 리터럴 이스케이프 오류 방지)
+  tbody.querySelectorAll('tr[data-mr]').forEach(function(tr) {
+    tr.addEventListener('click', function() { toggleMRFilter(tr.dataset.mr, tr); });
+  });
 }
 
 function toggleMRFilter(mr, row) {
