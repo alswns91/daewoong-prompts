@@ -1,8 +1,9 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { prompts, session2Prompts, categories, categoryMeta, sections, session2Categories, session2CategoryMeta, nlmCategories, nlmCategoryMeta } from '../data/prompts'
 import { scenarios, designPresets, buildStep1Prompt, buildStep2Prompt } from '../data/genspark-v2'
+import GuideSection from './GuideSection'
 
 // 젠스파크 지원 폰트
 const FONTS = [
@@ -156,7 +157,7 @@ END — Now fill all [CONTENT] fields below
 // ── 메인 컴포넌트 ─────────────────────────────────────────────
 export default function PromptLibrary({ initialSection = 'session1', onBack, onSwitchSection }) {
   const [activeSection, setActiveSection]   = useState(initialSection)
-  const [activeTool, setActiveTool]         = useState('genspark')
+  const [activeTool, setActiveTool]         = useState('guide')
   const [activeCategory, setActiveCategory] = useState('전체')
   const [searchQuery, setSearchQuery]       = useState('')
   const [copiedId, setCopiedId]             = useState(null)
@@ -346,20 +347,27 @@ export default function PromptLibrary({ initialSection = 'session1', onBack, onS
             <div className="max-w-6xl mx-auto px-5 flex items-center justify-between">
               <div className="flex gap-0">
                 {[
-                  { id: 'genspark',    label: 'Genspark AI 슬라이드', count: `${gsPrompts.length}개` },
-                  { id: 'notebooklm', label: 'NotebookLM AI 슬라이드', count: '30개' },
+                  { id: 'guide',      label: '실습 전 가이드',        count: '10개', accent: '#E8620A' },
+                  { id: 'genspark',    label: 'Genspark AI 슬라이드', count: `${gsPrompts.length}개`, accent: '#1D4ED8' },
+                  { id: 'notebooklm', label: 'NotebookLM AI 슬라이드', count: '30개', accent: '#1D4ED8' },
                 ].map(tab => (
                   <button key={tab.id}
                     onClick={() => { setActiveTool(tab.id); setActiveCategory('전체'); setSearchQuery('') }}
                     className={`flex items-center gap-2 px-4 py-3 text-sm border-b-2 transition-all ${
                       activeTool === tab.id
-                        ? 'border-blue-600 text-blue-600 font-semibold'
+                        ? 'font-semibold'
                         : 'border-transparent text-slate-500 hover:text-slate-700 font-medium'
-                    }`}>
+                    }`}
+                    style={activeTool === tab.id ? { borderColor: tab.accent, color: tab.accent } : {}}
+                  >
                     <span>{tab.label}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                      activeTool === tab.id ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'
-                    }`}>{tab.count}</span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                      style={activeTool === tab.id
+                        ? { background: `${tab.accent}15`, color: tab.accent }
+                        : { background: '#F1F5F9', color: '#94A3B8' }
+                      }
+                    >{tab.count}</span>
                   </button>
                 ))}
               </div>
@@ -374,6 +382,9 @@ export default function PromptLibrary({ initialSection = 'session1', onBack, onS
           </div>
 
           <main className="max-w-6xl mx-auto px-5 py-6">
+
+            {/* ── 실습 전 가이드 탭 ── */}
+            {activeTool === 'guide' && <GuideSection />}
 
             {/* ── Genspark 탭 ── */}
             {activeTool === 'genspark' && (

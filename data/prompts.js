@@ -1,4 +1,4 @@
-﻿// 실습 섹션 정의
+// 실습 섹션 정의
 export const sections = [
   {
     id: 'session1',
@@ -3572,16 +3572,16 @@ SLIDE 5: CLOSING
 // 실습1 — Genspark 프롬프트 30개
 // ══════════════════════════════════════════════════════════════
 export const prompts = [
-  { id: 1,  section: 'session1', tool: 'genspark', category: 'L', title: '코퍼레이트 블루',   description: '화이트 배경 + 블루 포인트. 정돈된 비즈니스 문서 느낌. KPI 카드·비교 박스 중심.',              slides: 8, status: 'ready', promptText: PROMPT_01, version: 'v2' },
-  { id: 7,  section: 'session1', tool: 'genspark', category: 'L', title: '클린 메디컬 그린',  description: '화이트 + 에메랄드 그린. 청결하고 신뢰감 있는 임상·헬스케어 스타일.',                              slides: 8, status: 'ready', promptText: PROMPT_07, version: 'v2' },
-  { id: 25, section: 'session1', tool: 'genspark', category: 'L', title: '미니멀 슬레이트',   description: '연회색 배경 + 다크 슬레이트. 여백 중심의 절제된 세련미. 모던하고 깔끔한 레이아웃.',               slides: 8, status: 'ready', promptText: PROMPT_25, version: 'v2' },
-  { id: 26, section: 'session1', tool: 'genspark', category: 'L', title: '프레쉬 민트',       description: '화이트 + 틸 민트 포인트. 신선하고 청량한 헬스케어 스타일.',                                         slides: 8, status: 'ready', promptText: PROMPT_26, version: 'v2' },
-  { id: 2,  section: 'session1', tool: 'genspark', category: 'D', title: '딥 네이비 골드',    description: '다크 네이비 배경 + 골드 포인트. 프리미엄·고급스러운 분위기. 수치 박스 크게 강조.',                 slides: 8, status: 'ready', promptText: PROMPT_02, version: 'v2' },
-  { id: 8,  section: 'session1', tool: 'genspark', category: 'D', title: '임팩트 다크',        description: '풀 다크 배경 + 시안 글로우. 강렬하고 현대적인 임팩트 PT 스타일. 대형 숫자 중심.',                   slides: 8, status: 'ready', promptText: PROMPT_08, version: 'v2' },
-  { id: 21, section: 'session1', tool: 'genspark', category: 'D', title: '로얄 퍼플',          description: '딥 퍼플 배경 + 바이올렛 포인트. 고급감과 창의성. 혁신적인 분위기.',                                 slides: 8, status: 'ready', promptText: PROMPT_21, version: 'v2' },
-  { id: 12, section: 'session1', tool: 'genspark', category: 'W', title: '웜 아이보리',        description: '크림 아이보리 배경 + 브라운 포인트. 학술·논문 스타일. 따뜻하고 격식 있는 분위기.',                 slides: 8, status: 'ready', promptText: PROMPT_12, version: 'v2' },
-  { id: 17, section: 'session1', tool: 'genspark', category: 'W', title: '에너제틱 코랄',      description: '따뜻한 오렌지-코랄 톤. 둥근 카드와 친근한 아이콘. 활기차고 감성적인 분위기.',                       slides: 8, status: 'ready', promptText: PROMPT_17, version: 'v2' },
-  { id: 28, section: 'session1', tool: 'genspark', category: 'W', title: '볼드 스칼렛',        description: '화이트 배경 + 딥 레드 포인트. 강렬하고 자신감 있는 임팩트 PT 스타일.',                              slides: 8, status: 'ready', promptText: PROMPT_28, version: 'v2' },
+  { id: 1,  section: 'session1', tool: 'genspark', category: 'L', title: '프로페셔널 메디컬 블루', description: '딥 블루 + 화이트. 신뢰감 있는 기본 Detail Aid · 제품 설명용. 가장 범용적인 MR 브리핑 스타일.',      slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 7,  section: 'session1', tool: 'genspark', category: 'L', title: '클리니컬 사이언스 그린', description: '에메랄드 그린 + 화이트. 임상 데이터 발표 · 논문 스타일. 데이터와 통계가 주인공인 학술 구성.',        slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 25, section: 'session1', tool: 'genspark', category: 'L', title: '미니멀 클린 포뮬러리',   description: '화이트 + 틸. 원내 P&T 위원회 · 채택 심의용. 극도로 절제된 정보 중심 디자인.',                        slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 26, section: 'session1', tool: 'genspark', category: 'D', title: '테크 시안 웨비나',      description: '그라파이트 + 시안. 디지털 웨비나 · 원격 세미나용. 대시보드 UI 감각의 카드형 레이아웃.',                slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 2,  section: 'session1', tool: 'genspark', category: 'D', title: '딥 네이비 골드 프리미엄', description: '네이비 + 골드. KOL 미팅 · 혁신 신약 런칭용. 명조체 타이포로 프리미엄 격식 연출.',                    slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 8,  section: 'session1', tool: 'genspark', category: 'D', title: '임팩트 다크 런칭',       description: '블랙 + 네온 시안. 신제품 런칭 캠페인 · 킥오프용. 초대형 타이포로 드라마틱 임팩트 전달.',               slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 21, section: 'session1', tool: 'genspark', category: 'D', title: '모던 퍼플 혁신',         description: '퍼플 그라데이션 + 라벤더. First-in-Class · 혁신 신약 포지셔닝. 글래스모피즘 · 비대칭 레이아웃.',         slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 12, section: 'session1', tool: 'genspark', category: 'W', title: '웜 아이보리 에듀케이션', description: '크림 + 코랄. 환자 교육 · 복약 상담 · 질환 인식용. 둥근 카드와 일러스트 중심의 친근한 톤.',                slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 17, section: 'session1', tool: 'genspark', category: 'W', title: '에너제틱 코랄 MR',       description: '코랄 + 선셋 오렌지. 사내 MR 교육 · 영업 킥오프 · 팀 모티베이션용. 동적 비대칭 레이아웃.',              slides: 8, status: 'ready', promptText: '', version: 'v2' },
+  { id: 28, section: 'session1', tool: 'genspark', category: 'D', title: '포멀 블랙 아카데믹',     description: '블랙 + 골드. 학회 심포지엄 · 공식 학술 발표용. 명조체와 이중선으로 최상위 격식 연출.',                   slides: 8, status: 'ready', promptText: '', version: 'v2' },
 
   // ══════════════════════════════════════════════════════════════
   // NotebookLM 슬라이드 디자인 프롬프트 30개 (실습1)
